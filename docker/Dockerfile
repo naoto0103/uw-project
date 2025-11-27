@@ -51,11 +51,14 @@ RUN pip3 install --upgrade pip setuptools wheel
 # Copy requirements first
 COPY requirements_docker.txt /tmp/requirements_docker.txt
 
-# Install PyTorch + requirements + PyTorch3D in one layer
-# This ensures PyTorch is available when building PyTorch3D
-RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && \
-    pip3 install -r /tmp/requirements_docker.txt && \
-    pip3 install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+# Install PyTorch first
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Install other requirements
+RUN pip3 install -r /tmp/requirements_docker.txt
+
+# Install PyTorch3D (disable build isolation to use system PyTorch)
+RUN pip3 install --no-build-isolation "git+https://github.com/facebookresearch/pytorch3d.git@stable"
 
 # Install MuJoCo 2.1.0
 RUN mkdir -p /root/.mujoco && \
