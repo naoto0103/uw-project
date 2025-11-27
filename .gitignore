@@ -1,0 +1,52 @@
+# Models (too large for git)
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+*.onnx
+
+# VILA/Qwen models
+HAMSTER/Hamster_dev/
+HAMSTER/VILA/
+HAMSTER/Qwen3-VL/
+
+# Data files
+*.zarr
+*.pkl
+*.npy
+*.npz
+*.hdf5
+*.h5
+
+# ManiFlow data and third_party
+ManiFlow/data/
+ManiFlow/third_party/
+
+# Results and outputs
+**/results/
+**/outputs/
+**/logs/
+**/wandb/
+
+# Cache
+__pycache__/
+*.pyc
+.cache/
+*.egg-info/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.temp
+*.log

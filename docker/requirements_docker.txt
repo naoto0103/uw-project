@@ -1,0 +1,92 @@
+# HAMSTER-ManiFlow Docker Requirements
+# Based on ManiFlow/scripts/requirements.txt and HAMSTER/requirements.txt
+
+# ===== Core ML =====
+numpy==1.23.5
+scipy==1.10.1
+scikit-learn==1.3.2
+
+# ===== Deep Learning =====
+# PyTorch installed separately in Dockerfile
+transformers==4.46.1
+accelerate==0.34.2
+diffusers==0.27.2
+safetensors==0.4.5
+sentencepiece==0.2.0
+timm
+einops==0.8.1
+torchdiffeq
+torchsde
+kornia
+
+# ===== Qwen3-VL Server =====
+fastapi>=0.68.0
+uvicorn>=0.15.0
+python-multipart>=0.0.5
+pillow>=8.0.0
+huggingface-hub==0.25.0
+
+# ===== ManiFlow Training =====
+hydra-core==1.2.0
+hydra-colorlog
+omegaconf
+wandb
+deepspeed==0.15.1
+
+# ===== Data Processing =====
+zarr==2.12.0
+h5py
+dill==0.3.5.1
+av
+
+# ===== Simulation =====
+sapien==3.0.0b1
+gymnasium==0.29.1
+dm_control
+pyglet<2
+
+# ===== Visualization =====
+matplotlib
+seaborn
+imageio
+moviepy
+opencv-python==4.5.5.64
+plotly
+kaleido
+open3d
+
+# ===== Utilities =====
+pydantic
+tqdm==4.66.5
+termcolor
+natsort
+tabulate==0.9.0
+regex==2024.9.11
+ftfy
+shortuuid==1.0.13
+tenacity==9.0.0
+gdown==5.2.0
+numba==0.61.2
+
+# ===== Build Tools =====
+setuptools==78.1.1
+Cython==0.29.35
+ninja
+patchelf==0.17.2.0
+
+# ===== API Clients =====
+openai==1.54.3
+
+# ===== 3D Processing =====
+transforms3d==0.4.2
+trimesh==4.4.3
+mplib==0.2.1
+
+# ===== Dev Tools =====
+ipdb
+gpustat==1.1.1
+pytest
+decorator==4.0.2
+
+# ===== Sentence Transformers (for embeddings) =====
+sentence-transformers
