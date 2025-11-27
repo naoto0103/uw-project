@@ -49,8 +49,7 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 &
 RUN pip3 install --upgrade pip setuptools wheel
 
 # Install PyTorch (stable version for A40/L40s)
-RUN pip3 install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
-    --index-url https://download.pytorch.org/whl/cu121
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 # Copy and install requirements
 COPY requirements_docker.txt /tmp/requirements_docker.txt
