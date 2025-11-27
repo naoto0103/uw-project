@@ -48,15 +48,14 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 &
 # Upgrade pip
 RUN pip3 install --upgrade pip setuptools wheel
 
-# Install PyTorch (stable version for A40/L40s)
-RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Copy and install requirements
+# Copy requirements first
 COPY requirements_docker.txt /tmp/requirements_docker.txt
-RUN pip3 install -r /tmp/requirements_docker.txt
 
-# Install PyTorch3D from source (takes time but ensures compatibility)
-RUN pip3 install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+# Install PyTorch + requirements + PyTorch3D in one layer
+# This ensures PyTorch is available when building PyTorch3D
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && \
+    pip3 install -r /tmp/requirements_docker.txt && \
+    pip3 install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
 
 # Install MuJoCo 2.1.0
 RUN mkdir -p /root/.mujoco && \
