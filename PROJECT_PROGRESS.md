@@ -1112,6 +1112,111 @@ naototo0103/hamster-maniflow:latest
 
 ---
 
+#### 🔄 2025-11-28 進捗アップデート
+
+##### 完了したタスク
+
+1. **Hyakストレージ構成の確立** ✅
+   - 作業ディレクトリ: `/gscratch/scrubbed/naoto03/`
+   - ホームディレクトリ（`~/`）はクォータ10GB制限のため使用しない
+   - 構造:
+   ```
+   /gscratch/scrubbed/naoto03/
+   ├── singularity/
+   │   ├── cache/
+   │   ├── tmp/
+   │   └── hamster-maniflow_latest.sif  # 12GB ✅
+   ├── projects/
+   │   └── HAMSTER-ManiFlow-Integration/  # git clone済み ✅
+   ├── data/                              # 未転送
+   ├── models/                            # 未転送
+   ├── cache/huggingface/                 # 未設定
+   └── outputs/
+   ```
+
+2. **Singularityイメージのpull** ✅
+   - イメージ: `naototo0103/hamster-maniflow:latest` (12GB)
+   - 場所: `/gscratch/scrubbed/naoto03/singularity/hamster-maniflow_latest.sif`
+   - 環境変数設定必須:
+   ```bash
+   export SINGULARITY_CACHEDIR=/gscratch/scrubbed/naoto03/singularity/cache
+   export SINGULARITY_TMPDIR=/gscratch/scrubbed/naoto03/singularity/tmp
+   export APPTAINER_CACHEDIR=/gscratch/scrubbed/naoto03/singularity/cache
+   ```
+
+3. **環境動作確認** ✅
+   - GPU認識: NVIDIA A40 (46GB VRAM)
+   - PyTorch: 2.5.1+cu121
+   - CUDA: 利用可能
+
+4. **プロジェクトコードのpush & clone** ✅
+   - GitHubにHAMSTER/ManiFlow全コードをpush (297ファイル)
+   - Hyakで`git clone`完了
+   - 場所: `/gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration/`
+
+5. **Node.js + Claude Code対応** 🔄 進行中
+   - **方法A**: Hyakベース環境にnvm経由でNode.jsインストール中
+   - **方法B**: Dockerイメージ再ビルド（Node.js 20 LTS + Claude Code追加）
+     - コミット: `67ca194`
+     - GitHub Actionsでビルド中
+     - 新タグ: `v2-with-nodejs`
+
+##### 未完了タスク
+
+1. **データ転送** ⏳
+   | データ | サイズ | 状態 | 転送方法 |
+   |--------|--------|------|----------|
+   | RoboTwin 1.0 (.zarr) | 6.7GB | 未転送 | Google DriveからDL or rsync |
+   | HAMSTERパス (.pkl) | 40KB | 未転送 | scp |
+   | Qwen3-VL | 17GB | 未転送 | HuggingFace自動DL |
+   | VILA (Hamster_dev) | 26GB | 未転送 | rsync |
+   | RoboTwin 2.0 | 122GB | 未転送 | rsync（後で） |
+
+2. **Claude Code動作確認** ⏳
+   - Singularity内でclaude codeが動くか確認
+   - `singularity exec`でPython環境を呼び出す設定
+
+##### 次回セッションでやること
+
+1. **Node.js入りイメージのpull**（GitHub Actionsビルド完了後）
+   ```bash
+   cd /gscratch/scrubbed/naoto03/singularity
+   singularity pull docker://naototo0103/hamster-maniflow:v2-with-nodejs
+   ```
+
+2. **Claude Code動作確認**
+   ```bash
+   singularity shell --nv --bind /gscratch/:/gscratch/ hamster-maniflow_v2-with-nodejs.sif
+   claude  # Claude Code起動
+   ```
+
+3. **データ転送**
+   - 優先: RoboTwin 1.0 + HAMSTERパス（トレーニングに必須）
+
+##### Hyakクイックスタート（次回用）
+
+```bash
+# 1. GPUノード取得
+srun -p gpu-a40 -A rselab --gpus=1 --mem=32G --time=24:00:00 --pty /bin/bash
+
+# 2. 環境変数設定
+export SINGULARITY_CACHEDIR=/gscratch/scrubbed/naoto03/singularity/cache
+export SINGULARITY_TMPDIR=/gscratch/scrubbed/naoto03/singularity/tmp
+export APPTAINER_CACHEDIR=/gscratch/scrubbed/naoto03/singularity/cache
+
+# 3. モジュールロード
+module load apptainer
+
+# 4. コンテナに入る
+singularity shell --nv --bind /gscratch/:/gscratch/ \
+  /gscratch/scrubbed/naoto03/singularity/hamster-maniflow_latest.sif
+
+# 5. プロジェクトディレクトリに移動
+cd /gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration
+```
+
+---
+
 ### 🚀 Hyak環境セットアップ完全ガイド
 
 以下の手順に従えば、Hyakで環境を完全に再現できる。
