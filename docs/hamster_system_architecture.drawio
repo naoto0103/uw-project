@@ -1,0 +1,271 @@
+<mxfile host="app.diagrams.net" modified="2025-11-15T23:30:00.000Z" agent="Claude Code" etag="hamster-architecture" version="21.0.0" type="device">
+  <diagram id="hamster-system" name="HAMSTER System Architecture">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="HAMSTER System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="600" y="20" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Server Layer Box -->
+        <mxCell id="server-layer" value="Server Layer (Backend)" style="swimlane;horizontal=1;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="740" height="380" as="geometry" />
+        </mxCell>
+
+        <!-- server.py main box -->
+        <mxCell id="server-py" value="server.py (260 lines)&#xa;FastAPI VLM Server" style="swimlane;horizontal=1;startSize=40;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;fontSize=12;fontStyle=1" vertex="1" parent="server-layer">
+          <mxGeometry x="20" y="50" width="700" height="310" as="geometry" />
+        </mxCell>
+
+        <!-- Pydantic Models -->
+        <mxCell id="pydantic-models" value="Pydantic Models (Data Validation)" style="swimlane;horizontal=1;startSize=25;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;fontSize=10;fontStyle=1" vertex="1" parent="server-py">
+          <mxGeometry x="10" y="50" width="330" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="text-content" value="TextContent&#xa;- type: Literal[&quot;text&quot;]&#xa;- text: str" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="pydantic-models">
+          <mxGeometry x="10" y="30" width="150" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="image-url" value="ImageURL&#xa;- url: str" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="pydantic-models">
+          <mxGeometry x="170" y="30" width="150" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="image-content" value="ImageContent&#xa;- type: Literal[&quot;image_url&quot;]&#xa;- image_url: ImageURL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="pydantic-models">
+          <mxGeometry x="10" y="75" width="150" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="chat-message" value="ChatMessage&#xa;- role: Literal[&quot;user&quot;, &quot;assistant&quot;]&#xa;- content: Union[str, List[...]]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="pydantic-models">
+          <mxGeometry x="170" y="75" width="150" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ChatCompletionRequest -->
+        <mxCell id="request-model" value="ChatCompletionRequest&#xa;- model: Literal[&quot;HAMSTER_dev&quot;, ...]&#xa;- messages: List[ChatMessage]&#xa;- max_tokens: int = 512&#xa;- temperature: float = 0.2&#xa;- top_p: float = 0.9&#xa;- num_beams: int = 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=5;fontStyle=1" vertex="1" parent="server-py">
+          <mxGeometry x="350" y="50" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Global Variables -->
+        <mxCell id="globals" value="Global Variables&#xa;- model: LLM&#xa;- tokenizer: Tokenizer&#xa;- image_processor: ImageProcessor&#xa;- context_len: int" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=5;fontStyle=1" vertex="1" parent="server-py">
+          <mxGeometry x="540" y="50" width="150" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Helper Functions -->
+        <mxCell id="helper-funcs" value="Helper Functions" style="swimlane;horizontal=1;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;fontSize=10;fontStyle=1" vertex="1" parent="server-py">
+          <mxGeometry x="10" y="180" width="330" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="load-image" value="load_image(url: str) → Image&#xa;Base64/URL → PIL Image" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="helper-funcs">
+          <mxGeometry x="10" y="30" width="150" height="35" as="geometry" />
+        </mxCell>
+
+        <mxCell id="normalize-tags" value="normalize_image_tags(qs: str)&#xa;Normalize &lt;image&gt; tokens" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="helper-funcs">
+          <mxGeometry x="170" y="30" width="150" height="35" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lifespan" value="lifespan(app) [async]&#xa;Load VILA model on startup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="helper-funcs">
+          <mxGeometry x="10" y="75" width="150" height="35" as="geometry" />
+        </mxCell>
+
+        <mxCell id="get-literals" value="get_literal_values(cls, field)&#xa;Extract Literal type values" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="helper-funcs">
+          <mxGeometry x="170" y="75" width="150" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Main Endpoint -->
+        <mxCell id="main-endpoint" value="@app.post(&quot;/chat/completions&quot;)&#xa;chat_completions(request) [async]&#xa;&#xa;1. Validate request model&#xa;2. Extract images &amp; text from messages&#xa;3. Process images with image_processor&#xa;4. Tokenize prompt&#xa;5. Generate with model.generate()&#xa;6. Decode tokens to text&#xa;7. Return ChatMessage response" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;align=left;spacingLeft=5;fontStyle=1;fontColor=#333333" vertex="1" parent="server-py">
+          <mxGeometry x="350" y="180" width="340" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- External Dependencies -->
+        <mxCell id="ext-deps" value="External Dependencies" style="swimlane;horizontal=1;startSize=25;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;fontSize=10;fontStyle=1" vertex="1" parent="server-layer">
+          <mxGeometry x="470" y="290" width="250" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vila-deps" value="llava.model.builder.load_pretrained_model()&#xa;llava.mm_utils.process_images()&#xa;llava.conversation.conv_templates" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9" vertex="1" parent="ext-deps">
+          <mxGeometry x="10" y="30" width="230" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Client Layer Box -->
+        <mxCell id="client-layer" value="Client Layer (Frontend)" style="swimlane;horizontal=1;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="800" y="80" width="760" height="500" as="geometry" />
+        </mxCell>
+
+        <!-- gradio_server_example.py -->
+        <mxCell id="gradio-py" value="gradio_server_example.py (230 lines)&#xa;Gradio Web UI Client" style="swimlane;horizontal=1;startSize=35;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;fontSize=11;fontStyle=1" vertex="1" parent="client-layer">
+          <mxGeometry x="20" y="50" width="350" height="420" as="geometry" />
+        </mxCell>
+
+        <!-- Gradio Constants -->
+        <mxCell id="gradio-consts" value="Constants&#xa;- MODEL = &quot;HAMSTER_dev&quot;&#xa;- SERVER_IP (from ip_eth0.txt)&#xa;- GRIPPER_CLOSE = 0&#xa;- GRIPPER_OPEN = 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="gradio-py">
+          <mxGeometry x="10" y="45" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Image Processing -->
+        <mxCell id="img-proc-funcs" value="Image Processing" style="swimlane;horizontal=1;startSize=20;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;fontSize=9;fontStyle=1" vertex="1" parent="gradio-py">
+          <mxGeometry x="10" y="125" width="330" height="85" as="geometry" />
+        </mxCell>
+
+        <mxCell id="preprocess" value="preprocess_image(img, crop_type)&#xa;Stretch or Center Crop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=8;align=left;spacingLeft=5" vertex="1" parent="img-proc-funcs">
+          <mxGeometry x="10" y="25" width="150" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="annotate" value="annotate_image(img, quest)&#xa;Add text overlay" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=8;align=left;spacingLeft=5" vertex="1" parent="img-proc-funcs">
+          <mxGeometry x="170" y="25" width="150" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="draw-lines" value="draw_lines_on_image_cv(img, points)&#xa;Draw trajectory with jet colormap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=8;align=left;spacingLeft=5" vertex="1" parent="img-proc-funcs">
+          <mxGeometry x="10" y="55" width="310" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Path Processing -->
+        <mxCell id="path-proc" value="Path Processing" style="swimlane;horizontal=1;startSize=20;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;fontSize=9;fontStyle=1" vertex="1" parent="gradio-py">
+          <mxGeometry x="10" y="220" width="330" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="proc-ans-gradio" value="process_answer(input_str) → [[x, y, gripper_state], ...]&#xa;Parse VLM output, extract coordinates and gripper actions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=8;align=left;spacingLeft=5" vertex="1" parent="path-proc">
+          <mxGeometry x="10" y="25" width="310" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- API Communication -->
+        <mxCell id="api-comm" value="API Communication" style="swimlane;horizontal=1;startSize=20;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;fontSize=9;fontStyle=1" vertex="1" parent="gradio-py">
+          <mxGeometry x="10" y="285" width="330" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="send-req" value="send_request(img, quest, max_tokens, temp, top_p)&#xa;1. Convert RGB→BGR, encode to base64&#xa;2. Create OpenAI client (base_url=server)&#xa;3. Send chat.completions.create() request&#xa;4. Return response text" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=8;align=left;spacingLeft=5" vertex="1" parent="api-comm">
+          <mxGeometry x="10" y="25" width="310" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Main Pipeline -->
+        <mxCell id="main-pipe-gradio" value="process_image_and_quest() [Main Pipeline]&#xa;1. preprocess_image() → 2. send_request()&#xa;3. process_answer() → 4. draw_lines_on_image_cv()&#xa;5. annotate_image() → return" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=8;align=left;spacingLeft=5;fontStyle=1" vertex="1" parent="gradio-py">
+          <mxGeometry x="10" y="375" width="330" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Gradio UI -->
+        <mxCell id="gradio-ui" value="Gradio UI Components&#xa;- Image Input&#xa;- Quest Text Input&#xa;- Max Tokens, Temperature, Top P sliders&#xa;- Crop Type Radio&#xa;- Submit Button&#xa;- Output Image Display&#xa;- Response Text Display" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="gradio-py">
+          <mxGeometry x="180" y="45" width="160" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- test_api_client.py -->
+        <mxCell id="test-client" value="test_api_client.py (207 lines)&#xa;CLI Test Client" style="swimlane;horizontal=1;startSize=35;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;fontSize=11;fontStyle=1" vertex="1" parent="client-layer">
+          <mxGeometry x="390" y="50" width="350" height="300" as="geometry" />
+        </mxCell>
+
+        <!-- Test Client Constants -->
+        <mxCell id="test-consts" value="Constants&#xa;- SERVER_IP (from ip_eth0.txt)&#xa;- GRIPPER_CLOSE = 0&#xa;- GRIPPER_OPEN = 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="test-client">
+          <mxGeometry x="10" y="45" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Test Path Processing -->
+        <mxCell id="test-path-proc" value="Path Processing" style="swimlane;horizontal=1;startSize=20;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;fontSize=9;fontStyle=1" vertex="1" parent="test-client">
+          <mxGeometry x="10" y="115" width="330" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="proc-ans-test" value="process_answer(input_str) → [[x, y, gripper_state], ...]&#xa;Regex-based parsing, handles &lt;action&gt; tags" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=8;align=left;spacingLeft=5" vertex="1" parent="test-path-proc">
+          <mxGeometry x="10" y="25" width="310" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Test Visualization -->
+        <mxCell id="test-viz" value="Visualization" style="swimlane;horizontal=1;startSize=20;fillColor=#dae8fc;strokeColor=#6c8ebf;rounded=1;fontSize=9;fontStyle=1" vertex="1" parent="test-client">
+          <mxGeometry x="10" y="180" width="330" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="draw-path" value="draw_path_on_image(img, points)&#xa;Green lines + gripper state markers (Red=Close, Blue=Open)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=8;align=left;spacingLeft=5" vertex="1" parent="test-viz">
+          <mxGeometry x="10" y="25" width="310" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- Test Main Function -->
+        <mxCell id="test-main" value="test_api(image_path, quest, output_path) [Main]&#xa;1. Load image → 2. Base64 encode&#xa;3. OpenAI API request → 4. Parse &lt;ans&gt;...&lt;/ans&gt;&#xa;5. process_answer() → 6. draw_path_on_image()&#xa;7. Save result image" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=8;align=left;spacingLeft=5;fontStyle=1" vertex="1" parent="test-client">
+          <mxGeometry x="10" y="245" width="330" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- Configuration Files -->
+        <mxCell id="config-layer" value="Configuration &amp; Scripts" style="swimlane;horizontal=1;startSize=25;fillColor=#f8cecc;strokeColor=#b85450;rounded=1;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="480" width="740" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="setup-sh" value="setup_server.sh&#xa;1. Save IP to ip_eth0.txt&#xa;2. Clone Hamster_dev from HuggingFace&#xa;3. Auto-detect model path&#xa;4. Launch server.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="config-layer">
+          <mxGeometry x="20" y="35" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ip-file" value="ip_eth0.txt&#xa;Server IP address&#xa;(shared between server &amp; clients)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="config-layer">
+          <mxGeometry x="240" y="35" width="180" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="model-path" value="Hamster_dev/VILA1.5-13b-robopoint_...&#xa;- 26GB model checkpoint&#xa;- 6 safetensor shards&#xa;- Vision Tower (817MB)&#xa;- MM Projector (96MB)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;align=left;spacingLeft=5" vertex="1" parent="config-layer">
+          <mxGeometry x="440" y="35" width="280" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Data Flow Arrows -->
+        <!-- Setup to Server -->
+        <mxCell id="arrow-setup-server" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#d79b00;exitX=0.5;exitY=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0" edge="1" parent="1" source="setup-sh" target="server-layer">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arrow-setup-label" value="Launches" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1" vertex="1" connectable="0" parent="arrow-setup-server">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- IP File to Clients -->
+        <mxCell id="arrow-ip-clients" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#82b366;exitX=1;exitY=0.5;entryX=0;entryY=1;dashed=1" edge="1" parent="1" source="ip-file" target="client-layer">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="450" as="sourcePoint" />
+            <mxPoint x="800" y="400" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="750" y="550" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arrow-ip-label" value="Reads IP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1" vertex="1" connectable="0" parent="arrow-ip-clients">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Client to Server Communication -->
+        <mxCell id="arrow-client-server" value="" style="endArrow=classic;startArrow=classic;html=1;strokeWidth=3;strokeColor=#6c8ebf;exitX=0;exitY=0.5;entryX=1;entryY=0.5" edge="1" parent="1" source="client-layer" target="server-layer">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="750" y="350" as="sourcePoint" />
+            <mxPoint x="800" y="300" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arrow-comm-label" value="HTTP POST /chat/completions&#xa;(OpenAI API Compatible)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1" vertex="1" connectable="0" parent="arrow-client-server">
+          <mxGeometry x="-0.2" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Data Flow Legend -->
+        <mxCell id="legend" value="Data Flow Legend" style="swimlane;horizontal=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;rounded=1;fontSize=11;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="800" y="600" width="760" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow1" value="RGB Image + Task Description → Base64 Encoding → API Request" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="10" y="30" width="350" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow2" value="VLM Inference → 2D Path Coordinates [(x,y), &lt;action&gt;, ...]" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="10" y="50" width="350" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow3" value="Path Parsing → [[x, y, gripper_state], ...] → Visualization" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="380" y="30" width="350" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow4" value="Output: Annotated Image with Trajectory Path" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10" vertex="1" parent="legend">
+          <mxGeometry x="380" y="50" width="350" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Version Info -->
+        <mxCell id="version" value="Generated: 2025-11-15 | HAMSTER Integration Project | Phase 1 Complete" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;fontStyle=2" vertex="1" parent="1">
+          <mxGeometry x="1160" y="700" width="400" height="20" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

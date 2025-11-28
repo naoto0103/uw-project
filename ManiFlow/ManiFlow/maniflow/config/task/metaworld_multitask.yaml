@@ -1,0 +1,43 @@
+name: metaworld_multitask
+
+task_names: 
+  - assembly
+  # - basketball
+  # - bin-picking
+  # - box-close
+  # - button-press-topdown
+
+shape_meta: &shape_meta
+  obs:
+    point_cloud:
+      shape: [512, 3]
+      type: point_cloud
+    agent_pos:
+      shape: [9]
+      type: low_dim
+  action:
+    shape: [4]
+  
+env_runner:
+  _target_: maniflow.env_runner.metaworld_multitask_runner.MetaworldMultitaskRunner
+  eval_episodes: 20
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  fps: 10
+  n_envs: null
+  n_train: null
+  n_test: null
+  task_names: ${task.task_names}
+  device: ${training.env_device}
+  use_point_crop: ${policy.use_point_crop}
+
+dataset:
+  _target_: maniflow.dataset.metaworld_multitask_dataset.MetaworldMultitaskDataset
+  data_path: data/
+  task_names: ${task.task_names}
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: 10000

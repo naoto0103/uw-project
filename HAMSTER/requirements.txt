@@ -1,0 +1,8 @@
+fastapi>=0.68.0
+uvicorn>=0.15.0
+gradio>=3.50.0
+python-multipart>=0.0.5
+pillow>=8.0.0
+torch>=2.0.0
+transformers>=4.30.0
+huggingface-hub>=0.16.0 

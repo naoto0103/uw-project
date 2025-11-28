@@ -1,0 +1,43 @@
+defaults:
+  - ../robotwin_env/dual_bottles_pick_hard@robotwin_env
+
+name: dual_bottles_pick_hard_image
+
+image_shape: &image_shape [3, 224, 224] # [3, 240, 320]
+shape_meta: &shape_meta
+  # acceptable types: rgb, low_dim
+  obs:
+    head_cam:
+      shape: *image_shape
+      type: rgb
+      horizon: ${n_obs_steps}
+    point_cloud:
+      shape: [1024, 6]
+      type: point_cloud
+      horizon: ${n_obs_steps}
+    agent_pos:
+      shape: [14]
+      type: low_dim
+      horizon: ${n_obs_steps}
+  action:
+    shape: [14]
+    horizon: ${horizon}
+
+env_runner:
+  _target_: maniflow.env_runner.robot_runner.RobotRunner
+  eval_episodes: 10
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  task_name: dual_bottles_pick_hard
+  task_config: ${robotwin_task.robotwin_env}
+
+dataset:
+  _target_: maniflow.dataset.robotwin_image_dataset.RoboTwinImageDataset
+  zarr_path: data/dual_bottles_pick_hard_50.zarr
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 0
+  val_ratio: 0.02
+  max_train_episodes: null

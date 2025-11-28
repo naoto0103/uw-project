@@ -1,0 +1,154 @@
+defaults:
+  - robotwin_task: diverse_bottles_pick_pointcloud
+
+name: train_maniflow_pointcloud_policy
+
+task_name: ${robotwin_task.name}
+shape_meta: ${robotwin_task.shape_meta}
+exp_name: "debug"
+
+horizon: 16
+n_obs_steps: 2
+n_action_steps: 16
+n_latency_steps: 0
+dataset_obs_steps: ${n_obs_steps}
+keypoint_visible_rate: 1.0
+obs_as_global_cond: True
+
+policy:
+  _target_: maniflow.policy.maniflow_pointcloud_policy.ManiFlowTransformerPointcloudPolicy
+  block_type: "DiTX"
+  n_layer: 12  # max 28
+  n_head: 8  # max 16
+  n_emb: 768 # max 1152
+  visual_cond_len: 128 # adjust according to the task
+  max_lang_cond_len: 1024 # maximum length of language tokens
+  qkv_bias: true
+  qk_norm: true
+  
+  language_conditioned: false
+  pre_norm_modality: false
+
+  flow_batch_ratio: 0.75 
+  consistency_batch_ratio: 0.25
+
+  sample_t_mode_flow: "beta" # choose between beta or lognorm, both are performing well
+  sample_t_mode_consistency: "discrete" 
+  sample_dt_mode_consistency: "uniform"
+  sample_target_t_mode: "relative" # "relative", "absolute"
+  denoise_timesteps: 10
+
+  diffusion_timestep_embed_dim: 128
+  diffusion_target_t_embed_dim: 128
+
+  use_point_crop: true
+  crop_shape:
+  - 80
+  - 80
+  encoder_type: "DP3Encoder"
+  encoder_output_dim: 128
+  horizon: ${horizon}
+  n_action_steps: ${n_action_steps}
+  n_obs_steps: ${n_obs_steps}
+
+
+  num_inference_steps: 10
+  obs_as_global_cond: true
+  shape_meta: ${shape_meta}
+
+  use_pc_color: false
+  pointnet_type: "pointnet"
+  downsample_points: true
+  pointcloud_encoder_cfg:
+    in_channels: 3
+    out_channels: ${policy.encoder_output_dim}
+    use_layernorm: true
+    final_norm: layernorm # layernorm, none
+    normal_channel: false
+    num_points: ${policy.visual_cond_len} 
+    pointwise: true
+    
+
+ema:
+  _target_: maniflow.model.diffusion.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+
+dataloader:
+  batch_size: 256 
+  num_workers: 8
+  shuffle: True
+  pin_memory: True
+  persistent_workers: True
+
+val_dataloader:
+  batch_size: 128
+  num_workers: 8
+  shuffle: False
+  pin_memory: True
+  persistent_workers: False
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1.0e-4
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  weight_decay: 1.0e-3
+
+training:
+  device: "cuda:0"
+  env_device: "cuda:0"
+  seed: 42
+  debug: False
+  resume: True
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 1010
+  gradient_accumulate_every: 1
+  use_ema: True
+  rollout_every: 500
+  checkpoint_every: 100
+  val_every: 50
+  sample_every: 5
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+
+logging:
+  group: ${exp_name}
+  id: null
+  mode: online
+  name: ${training.seed}
+  project: ManiFlow
+  resume: true
+  tags:
+  - ${logging.project}
+
+checkpoint:
+  save_ckpt: False # if True, save checkpoint every checkpoint_every
+  topk:
+    monitor_key: val_loss # test_mean_score, val_loss
+    # mode: max
+    # k: 0
+    # format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
+    mode: min
+    k: 0
+    format_str: 'epoch={epoch:04d}-val_loss={val_loss:.6f}.ckpt'
+  save_last_ckpt: True # this only saves when save_ckpt is True
+  save_last_snapshot: False
+
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}
