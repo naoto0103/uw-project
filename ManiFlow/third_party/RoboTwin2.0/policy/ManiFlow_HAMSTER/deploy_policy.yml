@@ -1,0 +1,70 @@
+# ManiFlow + HAMSTER Unified Evaluation Configuration
+#
+# This config is used by RoboTwin 2.0's eval_policy.py script.
+# Supports 3 evaluation modes for 6 experimental conditions.
+#
+# Usage:
+#   ./eval.sh --task click_bell --mode initial_current --env cluttered --seed 42
+#
+# Before running overlay modes (current, initial_current):
+#   1. Start VILA server: ./start_vila_server.sh 0 8000
+#   2. Ensure checkpoint exists for the task/env/mode combination
+
+# ============================================================
+# Required parameters (set via command line)
+# ============================================================
+
+# Task name (click_bell, turn_switch, move_can_pot, open_microwave, adjust_bottle, beat_block_hammer)
+task_name: null
+
+# Task config file (use single_arm_eval_cluttered for all evaluations)
+task_config: null
+
+# Evaluation mode: original, current, initial_current
+mode: initial_current
+
+# Training data environment: clean, cluttered
+env: cluttered
+
+# ============================================================
+# Optional parameters
+# ============================================================
+
+# Random seed for evaluation
+seed: 42
+
+# Number of episodes
+episodes: 100
+
+# Checkpoint path (if null, auto-find epoch 500 checkpoint)
+checkpoint_path: null
+
+# Output directory for results
+output_dir: ./eval_results
+
+# ============================================================
+# VILA Server Configuration
+# ============================================================
+
+# VILA server URL (only used for overlay modes)
+vila_server_url: "http://localhost:8000/v1"
+
+# VILA model name
+vila_model: "HAMSTER_dev"
+
+# ============================================================
+# Policy identification
+# ============================================================
+
+policy_name: ManiFlow_HAMSTER
+alg_name: maniflow_hamster
+addition_info: unified_eval
+
+# ============================================================
+# Legacy parameters (for compatibility)
+# ============================================================
+
+ckpt_setting: null
+instruction_type: unseen
+expert_data_num: null
+training_seed: 42

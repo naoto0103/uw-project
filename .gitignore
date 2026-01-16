@@ -27,9 +27,17 @@ docs/research/ref_pdf/
 *.hdf5
 *.h5
 
-# ManiFlow data and third_party
+# ManiFlow data
 ManiFlow/data/
+
+# ManiFlow third_party (large external deps)
 ManiFlow/third_party/
+# Exception: Include ManiFlow_HAMSTER evaluation scripts
+!ManiFlow/third_party/RoboTwin2.0/
+ManiFlow/third_party/RoboTwin2.0/*
+!ManiFlow/third_party/RoboTwin2.0/policy/
+ManiFlow/third_party/RoboTwin2.0/policy/*
+!ManiFlow/third_party/RoboTwin2.0/policy/ManiFlow_HAMSTER/
 
 # Results and outputs (general)
 **/results/
