@@ -1,0 +1,13 @@
+# Main Results: Success Rates (%)
+
+| Task | C1 | C2 | C3 | C4 | C5 | C6 |
+|:-----|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|
+| Click Bell | 4.0 | 2.0 | 4.0 | 3.0 | 20.0 | 1.0 |
+| Move Can to Pot | 21.0 | 20.0 | 26.0 | 27.0 | 27.0 | 27.0 |
+| Beat Block with Hammer | 4.0 | 6.0 | 1.0 | 31.0 | 37.0 | 11.0 |
+| **Average** | **9.7** | **9.3** | **10.3** | **20.3** | **28.0** | **13.0** |
+
+
+*C1-C3: Trained on cluttered, C4-C6: Trained on clean. All evaluated on cluttered.*
+
+*C1,C4: Original ManiFlow. C2,C5: VILA current path. C3,C6: VILA initial+current path.*

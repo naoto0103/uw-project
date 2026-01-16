@@ -1,0 +1,4 @@
+Task,H1_InDomain_C1toC3,H2_CrossDomain_C4toC6,H3_InDomain_C2toC3,H3_CrossDomain_C5toC6
+click_bell,0.0,-2.0,2.0,-19.0
+move_can_pot,5.0,0.0,6.0,0.0
+beat_block_hammer,-3.0,-20.0,-5.0,-26.0

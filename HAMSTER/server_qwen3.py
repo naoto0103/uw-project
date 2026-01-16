@@ -59,8 +59,11 @@ class ChatCompletionRequest(BaseModel):
     ]
     messages: List[ChatMessage]
     max_tokens: Optional[int] = 512
-    top_p: Optional[float] = 0.9
-    temperature: Optional[float] = 0.0
+    top_p: Optional[float] = 0.8
+    top_k: Optional[int] = 20
+    temperature: Optional[float] = 0.7
+    repetition_penalty: Optional[float] = 1.0
+    presence_penalty: Optional[float] = None  # Alias for repetition_penalty (OpenAI compat)
     stream: Optional[bool] = False
 
 
@@ -102,7 +105,8 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # Load model and processor
-    # Use device_map="cuda:0" to force GPU loading and avoid CPU offloading
+    # Use device_map="auto" to automatically distribute across available GPUs
+    # Use single GPU (controlled by CUDA_VISIBLE_DEVICES)
     model = AutoModelForImageTextToText.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,
@@ -180,10 +184,17 @@ async def chat_completions(request: ChatCompletionRequest):
         ).to(model.device)
 
         # Generate
+        # Use presence_penalty as alias for repetition_penalty (OpenAI compatibility)
+        rep_penalty = request.repetition_penalty
+        if request.presence_penalty is not None:
+            rep_penalty = request.presence_penalty
+
         print(f"Generating response...")
         print(f"  Prompt length: {len(text)} chars")
         print(f"  Images: {len(images)}")
         print(f"  Max tokens: {request.max_tokens}")
+        print(f"  Temperature: {request.temperature}, top_p: {request.top_p}, top_k: {request.top_k}")
+        print(f"  Repetition penalty: {rep_penalty}")
 
         with torch.no_grad():
             generated_ids = model.generate(
@@ -191,6 +202,8 @@ async def chat_completions(request: ChatCompletionRequest):
                 max_new_tokens=request.max_tokens,
                 temperature=request.temperature if request.temperature > 0 else None,
                 top_p=request.top_p if request.temperature > 0 else None,
+                top_k=request.top_k if request.temperature > 0 else None,
+                repetition_penalty=rep_penalty if rep_penalty > 1.0 else None,
                 do_sample=request.temperature > 0,
             )
 

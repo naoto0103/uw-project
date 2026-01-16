@@ -375,19 +375,17 @@ class ReplayBuffer:
         return self.meta['episode_ends']
     
     def get_episode_idxs(self):
-        import numba
-        numba.jit(nopython=True)
-        def _get_episode_idxs(episode_ends):
-            result = np.zeros((episode_ends[-1],), dtype=np.int64)
-            for i in range(len(episode_ends)):
-                start = 0
-                if i > 0:
-                    start = episode_ends[i-1]
-                end = episode_ends[i]
-                for idx in range(start, end):
-                    result[idx] = i
-            return result
-        return _get_episode_idxs(self.episode_ends)
+        # NOTE: Numba disabled to avoid deadlock in Singularity containers
+        # Using vectorized NumPy instead for better performance
+        episode_ends = self.episode_ends[:]
+        result = np.zeros((episode_ends[-1],), dtype=np.int64)
+        for i in range(len(episode_ends)):
+            start = 0
+            if i > 0:
+                start = episode_ends[i-1]
+            end = episode_ends[i]
+            result[start:end] = i
+        return result
         
     
     @property

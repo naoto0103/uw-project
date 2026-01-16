@@ -3,7 +3,10 @@
 
 import torch
 import numpy as np
-import pytorch3d.ops as torch3d_ops
+try:
+    import pytorch3d.ops as torch3d_ops
+except ImportError:
+    torch3d_ops = None  # pytorch3d not available, point cloud ops will fail
 import random
 
 

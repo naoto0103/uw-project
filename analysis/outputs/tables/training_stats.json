@@ -1,0 +1,182 @@
+[
+  {
+    "task": "Click Bell",
+    "condition": 1,
+    "initial_train_loss": 2.7614452322324117,
+    "final_train_loss": 0.003398252808256075,
+    "min_train_loss": 0.0028420799353625625,
+    "final_val_loss": 0.12374372780323029,
+    "min_val_loss": 0.020926805213093758,
+    "loss_reduction": 99.87693933710543
+  },
+  {
+    "task": "Click Bell",
+    "condition": 2,
+    "initial_train_loss": 2.7614533066749574,
+    "final_train_loss": 0.0034212826712367436,
+    "min_train_loss": 0.002882215669766689,
+    "final_val_loss": 0.10897695273160934,
+    "min_val_loss": 0.02251565083861351,
+    "loss_reduction": 99.87610572074615
+  },
+  {
+    "task": "Click Bell",
+    "condition": 3,
+    "initial_train_loss": 2.765212885538737,
+    "final_train_loss": 0.00314357082437103,
+    "min_train_loss": 0.0028012477753994367,
+    "final_val_loss": 0.45522236824035645,
+    "min_val_loss": 0.12444238364696503,
+    "loss_reduction": 99.88631722205508
+  },
+  {
+    "task": "Click Bell",
+    "condition": 4,
+    "initial_train_loss": 2.7620590045803883,
+    "final_train_loss": 0.0028757019594433855,
+    "min_train_loss": 0.002555030232035845,
+    "final_val_loss": 0.02067866362631321,
+    "min_val_loss": 0.004369040951132774,
+    "loss_reduction": 99.89588557106583
+  },
+  {
+    "task": "Click Bell",
+    "condition": 5,
+    "initial_train_loss": 2.762066192314273,
+    "final_train_loss": 0.0030209847256449647,
+    "min_train_loss": 0.002713445144644404,
+    "final_val_loss": 0.020988717675209045,
+    "min_val_loss": 0.004249151796102524,
+    "loss_reduction": 99.89062591135394
+  },
+  {
+    "task": "Click Bell",
+    "condition": 6,
+    "initial_train_loss": 2.7689265188623646,
+    "final_train_loss": 0.002497460513726854,
+    "min_train_loss": 0.0023019080981612206,
+    "final_val_loss": 0.02271956577897072,
+    "min_val_loss": 0.0076957568526268005,
+    "loss_reduction": 99.90980401622384
+  },
+  {
+    "task": "Move Can to Pot",
+    "condition": 1,
+    "initial_train_loss": 2.329787534216176,
+    "final_train_loss": 0.0021815251300880767,
+    "min_train_loss": 0.0018973105592126757,
+    "final_val_loss": 0.057420600205659866,
+    "min_val_loss": 0.017854878678917885,
+    "loss_reduction": 99.90636377360384
+  },
+  {
+    "task": "Move Can to Pot",
+    "condition": 2,
+    "initial_train_loss": 2.3298061298287434,
+    "final_train_loss": 0.0021048782858997584,
+    "min_train_loss": 0.001836640462178089,
+    "final_val_loss": 0.04562477767467499,
+    "min_val_loss": 0.017527814954519272,
+    "loss_reduction": 99.90965435883481
+  },
+  {
+    "task": "Move Can to Pot",
+    "condition": 3,
+    "initial_train_loss": 2.342555770666703,
+    "final_train_loss": 0.0021703906640734363,
+    "min_train_loss": 0.0018604602730509056,
+    "final_val_loss": 0.06596191972494125,
+    "min_val_loss": 0.016643309965729713,
+    "loss_reduction": 99.90734945604066
+  },
+  {
+    "task": "Move Can to Pot",
+    "condition": 4,
+    "initial_train_loss": 2.3253957235206992,
+    "final_train_loss": 0.002266412376923392,
+    "min_train_loss": 0.0022613608270441576,
+    "final_val_loss": 0.010806336998939514,
+    "min_val_loss": 0.004468715284019709,
+    "loss_reduction": 99.90253648641394
+  },
+  {
+    "task": "Move Can to Pot",
+    "condition": 5,
+    "initial_train_loss": 2.3254245539843024,
+    "final_train_loss": 0.0024450204248334896,
+    "min_train_loss": 0.0023434063009286333,
+    "final_val_loss": 0.00869047176092863,
+    "min_val_loss": 0.004079453181475401,
+    "loss_reduction": 99.89485703070244
+  },
+  {
+    "task": "Move Can to Pot",
+    "condition": 6,
+    "initial_train_loss": 2.3410012873552613,
+    "final_train_loss": 0.002552036225590539,
+    "min_train_loss": 0.0021358806357750573,
+    "final_val_loss": 0.07061434537172318,
+    "min_val_loss": 0.021025672554969788,
+    "loss_reduction": 99.89098527030397
+  },
+  {
+    "task": "Beat Block with Hammer",
+    "condition": 1,
+    "initial_train_loss": 2.51,
+    "final_train_loss": 0.00349,
+    "min_train_loss": 0.000348,
+    "final_val_loss": 0.102273,
+    "min_val_loss": 0.036321,
+    "loss_reduction": 99.8609561752988
+  },
+  {
+    "task": "Beat Block with Hammer",
+    "condition": 2,
+    "initial_train_loss": 2.51,
+    "final_train_loss": 0.00134,
+    "min_train_loss": 0.000444,
+    "final_val_loss": 0.226895,
+    "min_val_loss": 0.034556,
+    "loss_reduction": 99.94661354581675
+  },
+  {
+    "task": "Beat Block with Hammer",
+    "condition": 3,
+    "initial_train_loss": 2.53,
+    "final_train_loss": 0.0029,
+    "min_train_loss": 0.000577,
+    "final_val_loss": 0.167963,
+    "min_val_loss": 0.037923,
+    "loss_reduction": 99.88537549407116
+  },
+  {
+    "task": "Beat Block with Hammer",
+    "condition": 4,
+    "initial_train_loss": 2.25,
+    "final_train_loss": 0.00228,
+    "min_train_loss": 0.000882,
+    "final_val_loss": 0.008821,
+    "min_val_loss": 0.008821,
+    "loss_reduction": 99.89866666666667
+  },
+  {
+    "task": "Beat Block with Hammer",
+    "condition": 5,
+    "initial_train_loss": 2.28,
+    "final_train_loss": 0.00203,
+    "min_train_loss": 0.000983,
+    "final_val_loss": 0.006415,
+    "min_val_loss": 0.006415,
+    "loss_reduction": 99.9109649122807
+  },
+  {
+    "task": "Beat Block with Hammer",
+    "condition": 6,
+    "initial_train_loss": 2.28,
+    "final_train_loss": 0.00159,
+    "min_train_loss": 0.000915,
+    "final_val_loss": 0.05238,
+    "min_val_loss": 0.025479,
+    "loss_reduction": 99.93026315789473
+  }
+]

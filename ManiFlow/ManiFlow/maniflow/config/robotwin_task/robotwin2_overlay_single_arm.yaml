@@ -1,0 +1,62 @@
+# RoboTwin 2.0 Single-Arm Tasks with Overlay Images
+# This config defines the dataset and shape metadata for training ManiFlow
+# with HAMSTER-style overlay images on single-arm manipulation tasks.
+
+name: robotwin2_overlay_single_arm
+
+# Image shape for overlay images
+image_shape: &image_shape [3, 224, 224]
+
+# Shape metadata for observations and actions
+# Key design: dual overlay images (initial + current) for implicit memory
+shape_meta: &shape_meta
+  obs:
+    # Initial overlay: frame 0 with full intended path (provides task goal/memory)
+    initial_overlay:
+      shape: *image_shape
+      type: rgb
+      horizon: ${n_obs_steps}
+
+    # Current overlay: current timestep with remaining path
+    current_overlay:
+      shape: *image_shape
+      type: rgb
+      horizon: ${n_obs_steps}
+
+    # Robot state (joint positions)
+    agent_pos:
+      shape: [14]
+      type: low_dim
+      horizon: ${n_obs_steps}
+
+  action:
+    shape: [14]
+    horizon: ${horizon}
+
+# Dataset configuration
+dataset:
+  _target_: maniflow.dataset.robotwin2_overlay_dataset.RoboTwin2OverlayDataset
+
+  # Data paths (Hyak HPC)
+  overlay_base_dir: /gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration/HAMSTER/results/robotwin2_single_6tasks_vila
+  robotwin2_base_dir: /mmfs1/gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration/ManiFlow/third_party/RoboTwin2.0/dataset/dataset
+
+  # Tasks to include (3 single-arm tasks with overlay images ready)
+  tasks:
+    - beat_block_hammer
+    - click_bell
+    - move_can_pot
+
+  n_episodes: 50
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  image_size: [224, 224]
+  robot: aloha-agilex
+  config: clean_50
+
+# No env_runner for now (offline training only)
+# env_runner can be added later for online evaluation

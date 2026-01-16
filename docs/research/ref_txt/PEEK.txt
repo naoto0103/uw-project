@@ -1,0 +1,909 @@
+arXiv:2509.18282v1 [cs.RO] 22 Sep 2025
+PEEK: Guiding and Minimal Image Representations
+for Zero-Shot Generalization of Robot Manipulation Policies
+Jesse Zhang⋆1,2,3, Marius Memmel⋆1,2, Kevin Kim3
+,
+Dieter Fox1,4, Jesse Thomason3, Fabio Ramos2, Erdem Bıyık3, Abhishek Gupta†1, Anqi Li†2
+Give the banana to
+Jensen Huang
+Put Spiderman in the
+lunch box
+Abstract— Robotic manipulation policies often fail to gener-
+alize because they must simultaneously learn where to attend,
+what actions to take, and how to execute them. We argue that
+❓ 🤖
+high-level reasoning about where and what can be offloaded to
+vision-language models (VLMs), leaving policies to specialize
+in how to act. We present PEEK (Policy-agnostic Extraction
+of Essential Keypoints), which fine-tunes VLMs to predict
+a unified point-based intermediate representation: (1) end-
+effector paths specifying what actions to take, and (2) task-
+relevant masks indicating where to focus. These annotations
+are directly overlaid onto robot observations, making the
+representation policy-agnostic and transferable across architec-
+tures. To enable scalable training, we introduce an automatic
+annotation pipeline, generating labeled data across 20+ robot
+datasets spanning 9 embodiments. In real-world evaluations,
+PEEK consistently boosts zero-shot generalization, including a
+41.4× real-world improvement for a 3D policy trained only in
+simulation, and 2–3.5× gains for both large VLAs and small
+manipulation policies. By letting VLMs absorb semantic and
+visual complexity, PEEK equips manipulation policies with the
+minimal cues they need—where, what, and how. Website at
+https://peek-robot.github.io.
+Put the Labubu in the
+shopping bag
+I. INTRODUCTION
+Imagine walking through a crowded store when your child
+suddenly cries out, “I want the Labubu!” Though you’ve
+never heard the word before, context clues guide your eyes
+to the fuzzy toy on the shelf, and you effortlessly weave
+through the crowd to grab it. What makes this possible is not
+raw perception ability, but the ability to interpret ambiguous
+instructions and distill them into just the right cues—where to
+focus, what actions to take, and how to perform these actions
+at the low level. Similarly, if given where to focus and what
+motions to take, a robot manipulation policy should be able
+to achieve the visual robustness and semantic generalization
+necessary for open-world deployment by focusing only on
+how to perform actions.
+A common tactic for training manipulation policies
+is through imitation learning of human-collected robotics
+data [1]–[4], which attempts to learn the where, what, and
+how all at the same time. Yet their performance degrades
+on novel objects, clutter, or semantic variations [5], [6],
+since the policy alone bears the burden of handling task,
+semantic, and visual complexity. Such failures often entangle
+the axes of where, what, and how—for example, grasping
+a distractor simultaneously reflects misplaced attention, an
+incorrect object choice, and a wrong motion.
+⋆Co-first authors, †Equal Advising, 1University of Washington,
+2NVIDIA, 3University of Southern California, 4Allen Institute for AI
+PEEK
+Path: [(0.25, 0.1), ...]
+Mask: {(0.30,0.57), ...}
+Draw 2D Path ✏
++ Mask Image ◼
+💡
+✓ 🤖
+Fig. 1: PEEK enables policy generalization by modulating minimal
+representations of where to focus and what to do for robust policy learning.
+Our key idea is to offload high-level reasoning to vision-
+language models (VLMs), which can excel at semantic and
+visual generalization [7], [8], leaving the policy to determine
+how low-level behavior should be executed. Instead of forc-
+ing the policy to directly parse raw images and instructions,
+a high-level VLM modulates the input representation to the
+low-level policy by providing: (1) a path that encodes what
+the policy should do, and (2) masks showing where to attend.
+By “absorbing” semantic and visual variation, the VLM
+provides the policy a simplified, annotated “peek” of the
+scene that gives the what and the where, while the policy only
+needs to learn how to perform the low-level actions. This
+intermediate representation helps policy execution inherit
+many of the VLM’s semantic and visual generalization
+capabilities. Our VLM-modulated representation is naturally
+policy-agnostic, allowing it to be applied to arbitrary image-
+input robot manipulation policies, including state-of-the-art
+RGB and 3D manipulation policies [1], [3], [9].
+To concretely instantiate this insight into a practical al-
+gorithm, we introduce PEEK (Policy-agnostic Extraction
+of Essential Keypoints), which proposes a unified, point-
+based intermediate representation that trains VLMs to predict
+what policies should do and where to focus on. Specif-
+ically, we propose to finetune pretrained VLMs [10] to
+predict a sequence of points corresponding to (1) a path
+that guides the robot end-effector in what actions to take
+and (2) a set of task-relevant masking points that show the
+policy where to focus on (see Figure 1). During low-level
+visuomotor policy training and inference, we modulate the
+policy’s image observations by directly drawing these VLM-
+predicted paths and masks onto the image, allowing the
+policy to simply focus on how to act, rather than learning all
+three simultaneously. Doing so significantly bolsters policy
+generalization, combining the generality of high-level VLM
+predictions with the precision of low-level policy learning.
+In this paper, we instantiate a full-stack implementation of
+PEEK, from devising a scalable data annotation scheme that
+enables large-scale VLM finetuning on robotic datasets to
+representation-modulated training of low-level robot policies
+from simulation and real world data.
+In 535 real-world evaluations across 17 task variations,
+we demonstrate that PEEK consistently boosts zero-shot
+policy generalization: a 3D policy (3DDA [9]) trained only
+in simulation achieves 41.4×higher success in the real world
+when guided by PEEK, and both large-scale vision-language-
+action models (π0 [3]) and small transformer-based poli-
+cies [1] see 2–3.5×success rate improvements. These results
+demonstrate the power of using high-level VLMs to absorb
+task complexity, providing low-level policies with exactly the
+minimal cues they need for generalizable manipulation.
+II. RELATED WORKS
+Object-Centric Representations. One approach to improv-
+ing the visual generalization of imitation learning (IL) poli-
+cies is to build object-centric representations [11]–[17]. Ear-
+lier works relied on human-selected abstractions or manual
+annotation [11], while more recent methods leverage pre-
+trained, open-vocabulary segmentation models to visually
+isolate task-relevant objects [12]–[15], [17]. Among these,
+ARRO [13] is closest to our work, proposing a policy-
+agnostic masking scheme using GroundingDINO [18] to
+filter images for task-relevant objects. However, we found in
+Section IV that such object detectors often fail in cluttered,
+realistic scenes. By contrast, PEEK queries a fine-tuned VLM
+to predict task-relevant masking points directly, resulting
+in more robust masks than using object-detection models
+due to the VLM’s extensive pre-training. Another approach,
+OTTER [16], implements implicit masking by filtering CLIP
+image patches, but this approach is architecture specifc.
+PEEK’s policy-agnostic explicit masking allows us to in-
+tegrate it with far more powerful policy backbones than
+OTTER, i.e., vision-language-action models like π0 [3]. Fi-
+nally, while masking alone helps mitigate visual distractors, it
+alone cannot handle semantic variation; PEEK also provides
+explicit action guidance via predicted paths.
+Another line of object-centric methods relies on learning
+to decompose scenes into object-level representations in
+a self-supervised manner, e.g., via slot-attention [19]–[22],
+which learns to map visual features into a set of discrete,
+object-centric “slots” through competitive attention mecha-
+nisms. However, these methods have not been applied to
+real-world robot manipulation settings and generally do not
+work zero-shot. PEEK’s use of a pre-trained VLM helps it
+predict task-relevant points on new objects and tasks.
+Guiding Manipulation Policies. A separate line of work
+improves generalization by explicitly guiding policies in
+how to perform tasks via 2D gripper paths. RT-Trajectory
+introduced this concept using human-drawn sketches at in-
+ference time [23]. Later methods integrated 2D path predic-
+tion into VLA training objectives [8], [24]–[26], but these
+approaches are tied to specific architectures. More relevant
+is HAMSTER [7], which trains a VLM to predict future
+2D gripper paths that a lower-level 3D policy conditions on.
+While this approach aids with policy understanding of what
+high-level motions to perform, we found in Section IV that
+HAMSTER-trained policies are easily confused by visual
+variation. In contrast, PEEK’s VLM predicts a single point-
+based representation that also includes masks helping the
+policy understand where to focus on.
+Other works propose guiding policies via relabeling lan-
+guage instructions [27]–[31] or behavioral priors, i.e., latent
+skills, learned from data [32]–[35]. These approaches are
+complementary to PEEK’s image-based input representation.
+III. PEEK: GUIDING AND MINIMAL IMAGE
+REPRESENTATIONS
+We study how to enhance the generalization capability
+of arbitrary visuomotor policies to semantic and visual task
+variation. To do so, PEEK proposes to offload high-level
+task reasoning to VLMs to produce a guiding (what) and
+minimal (where) image representation for a low-level policy,
+which in turn actualizes how to actually perform the task
+through real-world actions. Concretely, we instantiate this
+representation via 1) 2D gripper paths and 2) task-relevant
+masks (see Figure 1). This hierarchical approach shifts the
+burden of generalization from the low-level policy to the
+high-level VLM, allowing the policy to focus only on how
+to execute low-level actions.
+A. Conceptual Insight
+Imitation learning methods train a policy π(at |ot,st,l)
+predicting an action at given RGB observations ot, pro-
+prioceptive and other sensory data (e.g., depth) st, and a
+task instruction l. Given an expert-collected robot dataset
+Dπ, π is trained with maximium likelihood estimation, i.e.,
+maxπE(ot,st,l,at)∼Dπ [log π(at |ot,st,l)].
+PEEK explores how to improve imitation learning methods
+by training a VLM to map (l,ot) to a guiding but minimal
+representation, op,m
+t , that enables zero-shot generalization to
+significant visual and semantic variation beyond that in Dπ.
+Downstream task variation can include any combination of,
+e.g., new scenes, visual clutter not present during training,
+new objects, and unseen language instructions.
+Formally, PEEK fine-tunes a pre-trained VLM conditioned
+on (l,ot) to produce a set of points, i.e., pt,mt ∼VLM(·|
+ot,l), corresponding to: (1) 2D gripper paths, pt, indicating
+where the end-effector should move to solve the task, and
+(2) a set of task-relevant masking points, mt, that indicate
+objects and regions of relevance. 2D gripper paths are defined
+as pt = [(x,y)t,...,(x,y)T] where (x,y) ∈ [0,1]2 are
+normalized pixel locations of the end effector’s positions
+at timestep t until trajectory end point T. Masking points
+are defined as mt = {(x,y)i}M
+i=1, an unordered set of pixel
+locations (x,y) ∈[0,1]2 of task-relevant points.
+Although any pre-trained text and image input VLM can
+be used to predict these path and mask points, prior work
+has found that even the best closed-source models struggle
+with predicting robot gripper paths without fine-tuning [7],
+[8], let alone masking points. Therefore, we need to fine-tune
+a VLM on a large dataset that grounds it to a diverse set of
+robot scenes and embodiments. PEEK introduces a scalable
+data-labeling scheme which we use to create a dataset of over
+2M VQA pairs, spanning 148k trajectories, 9 embodiments,
+and 21 robotics datasets.
+B. VLM Data Preparation
+To finetune VLMs for PEEK we assemble a dataset
+DVLM = {(o,l,ans)i}V
+i=1 of image inputs o, instructions
+l, and text-based responses ans depending on the dataset.
+In this section, we introduce our datasets, and then we detail
+our automatic robot data labeling pipeline.
+Point Prediction and VQA Datasets. Like prior work [7],
+[8], we first incorporate readily available pixel point pre-
+diction and visual question answering (VQA) data into
+DVLM to maintain the VLM’s general world knowledge
+and object reasoning capabilities. We use the Robo-
+Point dataset [36] with 770k pixel point prediction
+tasks, e.g., l= “Point to the cushions,” and ans =
+[(0.56,0.69),(0.43,0.67)], and 665k VQA examples, e.g.,
+l= “What is the cat eating?,” and ans = “An apple.”
+Robotics Datasets. Our main robotics dataset comes from
+the Open X-Embodiment (OXE) dataset [37], where we label
+20 datasets from the OXE “magic soup” [2]. Notably, our
+data labeling pipeline works effectively on datasets with lots
+of clutter or awkward viewpoints that make task-relevant
+objects appear very small, such as DROID [38] (e.g., the
+pen in Figure 6). In contrast, we found the pre-trained object
+detection models [18] used by prior works to extract object-
+centric representations [13], [17] to be ineffective. Finally, we
+also include a robotics simulation dataset (LIBERO-90 [39])
+in our training mix to broaden the visual feature coverage
+of the VLM. Now we describe how we scalably label our
+robotics datasets.
+Automatically Labeling Robotic Datasets. PEEK’s VLM
+needs to predict a list of 2D gripper path points pt and task-
+relevant masking points mt given arbitrary task instructions
+and robot observations. Prior works label their dataset using
+calibrated 3D cameras (in simulation and the real world) or
+human annotations [7], [8], limiting the scalability of data
+annotation. In contrast, we devise an automatic and scalable
+multi-step tracking pipeline that extracts how to solve the
+task and what to focus on directly from robot videos.
+First, our representation should be minimal, i.e., it should
+encode task-relevant entities at each timestep t. To extract
+this information from a video, we have to ask the following
+question: What entities are relevant to the task? We answer
+this question by tracking a grid of points through time
+with a visual point tracking model [40]. Points that move
+significantly throughout the trajectory correspond to the robot
+arm or objects being manipulated. We define this set as
+task-relevant points Ptask
+t = {(x,y)i}N
+i=1, tracked across
+all timesteps of a trajectory t ∈[1,T], as they capture the
+minimal information needed by a policy to solve the task.
+Second, our representation should be guiding, i.e., capture
+information about the (1) future relevant object movement
+and (2) robot gripper movement. (1) The tracking points tell
+us the entities’ position at each timestep t. To capture how
+they move and where they end up, e.g., object placement
+locations, we include points at the last timestep Ptask
+T . (2) We
+additionally construct a set of end-effector points Pgrip
+t =
+[(x,y)]T
+t by tracking the gripper throughout the video.
+Finally, we process the data into subtrajectories sepa-
+rated by when the robot manipulates an object, and con-
+struct the 2D paths pt = Pgrip
+t and masking points
+mt = Ptask
+t ∪Ptask
+T . The natural language prediction
+target ans for the VLM is then a combination of the
+shortened pt and mt: TRAJECTORY: [(0.25, 0.1),
+...] MASK: [(0.30,0.57), ...]. See Section I-A
+and Figure 6 for details regarding the data labeling pipeline.
+C. VLM and Policy Training/Inference with PEEK
+VLM Fine-tuning. We use VILA-1.5-3b [10] as our base
+VLM, a 3B parameter VLM trained on interleaved image-
+text datasets and video captioning data. We fine-tune our
+VLM for one epoch using the combined datasets totalling
+3.5M samples with a learning rate of 5e−2 and a batch size
+of 16. Fine-tuning takes∼20h on 8 NVIDIA A100 GPUs.
+We fine-tune the VLM with a standard supervised prediction
+objective to maximize the log-likelihood of the answers ans:
+maxVLM E(o,l,ans)∼DVLM log VLM(ans |o,l).
+VLM Inference. During deployment, PEEK’s VLM acts at
+a higher level, absorbing the semantic complexity and visual
+clutter of the scene and providing a lower-level policy with a
+guiding and minimal representation. However, querying the
+high-level VLM at every timestep is unnecessary because
+the scene is unlikely to change significantly at the same
+frequency as the policy is acting. Since frequent VLM
+queries are expensive and must be run sequentially, we
+run the VLM at a reduced frequency. While prior works
+predict paths either at the start of a rollout [7] or at every
+timestep [24], our hybrid approach strikes a balance between
+inference speed and responsiveness. To minimize the gap
+between training and deployment, our data labeling and
+training scheme reflects this design choice by querying the
+VLM at a fixed frequency of every H timesteps.
+VLM / Policy Interface. During inference, the policy re-
+ceives an augmented image input op,m
+t created by drawing
+the path pt and mask mt onto the image observation ot.
+We draw the 2D path pt by connecting each subsequent
+point in pt with a colored line segment. This drawing guides
+the policy for which path to follow to accomplish the task. To
+indicate passage of time, the line segment changes from dark
+to light red . To create masks, we start from a black
+canvas and use the area around the predicted task-relevant
+points to reveal parts of the image. For each predicted task-
+relevant point (x,y) ∈m, we create a square centered around
+(x,y) with edge length 8% of the image’s size. See Figure 2
+for a visual depiction of path and mask drawing.
+We query the VLM every H steps to generate pt,mt based
+on the current environment observation ot and apply the same
+ot+H
+VLM Input
+Instruction: "put blue block
+on red block"
+PEEK VLM
+Policy Input
+s =
+[EEF orientation,
+depth, ...]
+VLM Response
+p = [(0.25, 0.1), ...]
+m = {(0.30,0.57), . . . }
+Draw 2D
+Path ✏
+Mask
+Image ◼
+l=
+"put blue block
+on red block"
+op,m
+t
+ot:t+H
+π(at ∣ op,m
+t , st, l)
+at:t+H
+Training Objective
+max
+π
+t+H
+∑
+i=t
+log π(ai ∣ op,m
+i , si, l)
+Inference
+Training
+ot
+ot+H
+Fig. 2: Policy Training and Inference Pipeline. The VLM is called every H steps to generate a path and task-relevant points. An (arbitrary) RGB-input
+policy is conditioned on the path and masked image to either predict actions for inference or for training. The same path and mask is applied onto incoming
+observations for H steps, after which the VLM is re-queried.
+annotations pt and mt to all incoming observations op,m
+t:t+H
+exactly reproducing camera angles and with a different table,
+until H steps have passed.
+Each VLM query takes about 4-6 seconds on an RTX 3090
+without any explicit speed optimization, but until the next
+VLM query, the policy π runs at its own inference speed.
+Policy Training. Consequently, we annotate all the trajec-
+tories in the policy training data Dπ to create an annotated
+dataset Dp,m
+π . We train π on the PEEK-labeled dataset Dp,m
+π
+using its original training objective, e.g., maximizing log-
+likelihood of the actions: maxπEDp,m
+π log π(at |op,m
+t ,st,l).
+We list policy and VLM query frequencies in Section I-C.
+IV. EXPERIMENTAL SETUP
+To demonstrate the broad applicability of PEEK, we
+evaluate across two real-world robot embodiments, both
+2D (π0 [3], ACT [1]) and 3D (3DDA [9]) policy classes,
+fine-tuning and training policies from scratch. We evaluate
+zero-shot generalization from publicly available [41] and
+simulation-generated datasets to our custom setups, varying
+the task semantics and introducing visual clutter.
+Franka Sim-to-Real. To study the semantic generalization
+and visual robustness induced by PEEK, we require a large-
+scale robotic dataset to cover all possible motions the policy
+might encounter during inference. Simulation offers a cheap,
+scalable approach to generate such a dataset without going
+through the effort of manual data collection.
+We collect 2.5k trajectories of cube stacking with a motion
+planner in MuJoCo environments with three colored cubes
+(sampled from {red, green, blue, yellow}) placed randomly
+on a 40 ×40cm grid. See Figure 3 for a visualization of the
+data. Our real-world setup consists of a Franka Emika Panda
+robot [42], [43] with depth from processing RGB images
+from a Zed 2 stereo camera with FoundationStereo [44].
+In the real world, we first test policy transfer on four
+fixed cube configurations (BASIC), then add visual CLUT-
+TER to assess visual robustness, and finally evaluate three
+SEMANTIC tasks requiring reasoning about unseen objects
+and placements (Figure 3). Each policy is evaluated for 5
+trials per task, totaling 220 evaluations across 4 methods and
+11 variations.
+WidowX BRIDGE. Our second environment uses a Wid-
+owX250 robot with a single Logitech C920 RGB camera,
+resembling the BRIDGE [41] environment, albeit without
+objects, and background wall. We re-label the BRIDGE-v2
+dataset [41] (single camera angle) with PEEK according to
+Section III-C and zero-shot evaluate it on our setup.
+We evaluate on a set of three tasks, representing basic
+generalization (to our custom robot setup), visualized in the
+BASIC column of Figure 4. We then evaluate CLUTTER,
+which adds significant visual clutter to each of the three
+BASIC tasks, and finally SEMANTIC, representing difficult
+tasks that require visual-language reasoning to complete. We
+perform 5 evals per task with randomized object locations.
+Baselines. In our Sim-to-Real experiments, we evaluate
+PEEK’s application to 3D policies. We use 3DDA [9] as our
+base policy and implement all baselines on top of it.
+• 3DDA [9]: A state-of-the-art language-conditioned 3D
+policy conditioned on depth, RGB, and language.
+• HAMSTER [7]: Fine-tunes a 13B parameter VLM to pre-
+dict 2D gripper paths for a 3D policy to condition on.
+• ARRO [13]: An explicit masking baseline using Ground-
+ingDINO [18] to segment gripper and objects.
+We apply masks from ARRO and PEEK to both the RGB
+image and point clouds input to 3DDA.
+To show PEEK also applies to 2D policies of different
+architectures, we evaluate it on ACT [1] and π0 [3].
+• ACT [1]: a small 90M parameter transformer policy we
+additionally condition with language embeddings [45].
+• π0 [3]: A 3.5B parameter VLA first pre-trained on a large
+dataset, which we LoRA fine-tune on BRIDGE.
+• OTTER [16]: A 400M parameter transformer which im-
+plicitly masks observations by discarding image patches
+with low CLIP-feature alignment to the task instruction.
+• ARRO [13]: Explicit masking baseline introduced above.
+We evaluate both ARRO and PEEK on top of both ACT and
+π0 as they are both policy-agnostic.
+V. EXPERIMENTAL RESULTS
+Our evaluation aims to address the following questions:
+(Q1) How much does PEEK improve semantic and visual
+generalization across diverse policy architectures? (Q2) How
+accurately does PEEK help with where and what? and (Q3)
+How much does each component of PEEK contribute? We
+answer these questions in order below.
+Simulation
+Basic (x4)
+Clutter
+Semantic
+Fig. 3: Franka Sim-to-Real Tasks. Zero-shot evaluation environments along with associated path-drawn and masked images produced by PEEK.
+SIMULATION denotes the generated simulation data that the policies were trained on.
+Basic Clutter Semantic
+PEEK
+Evaluation
+PEEK
+Evaluation
+Tasks
+Put the red cube on the
+blue cube
+Put the red cube on the
+blue cube
+Put the red cube on the
+blue cube
+Put the blue cube on
+the red cube
+Put the red cube on the
+blue cube
+Put the blue cube on
+the red cube
+Put the basketball in
+the bowl
+Knock over the syrup
+bottle
+Put the blue cube next
+to the healthy items
+Predictions
+Tasks
+Predictions
+Press the button Put the carrot in the
+drawer
+Slide the pot to
+the shrimp Press the button Put the carrot in the
+drawer
+Slide the pot to
+the shrimp
+Put the healthy food on
+the plate
+Give the banana to
+Jensen Huang
+Put the green pepper in
+the green drawer
+Fig. 4: WidowX Tasks. Evaluation environments along with associated path-drawn and masked images produced by PEEK.
+Franka Sim-to-Real
+1
+0.75
+0.83
+0.84
+0.78
+0.50
+0.5
+0.25
+0
+0.45
+0.00 Task Completion Task Success Rate
+1
+0.78
+0.71
+0.75
+0.65
+0.65 0.60
+0.27 0.15
+0.00 0.00
+0.00
+0.00 0.07 0.00
+Basic Clutter Semantic 0.40 0.20
+0.41
+0.20
+0.30
+0.04
+0.5
+0.25
+0
+0.67 0.63
+0.31
+0.02
+0.06
+WidowX BRIDGE
+1
+0.75
+0.5
+0.25
+0
+0.35
+0.77
+0.65
+0.57
+0.47
+0.33
+0.33 0.20 0.00
+Basic Clutter Semantic Overall
+3DDA 3DDA + HAMSTER 3DDA + ARRO 3DDA + PEEK
+1
+0.75
+0.5
+0.25
+0
+Overall
+0.73
+0.38
+0.33
+0.33
+0.30
+0.27
+0.03 0.70
+0.58
+0.60
+0.51
+0.37
+0.33
+0.30
+0.25
+0.23
+0.12
+0.07
+0.08
+0.08
+0.00
+Basic Clutter Semantic Overall
+OTTER ACT ACT+ARRO ACT+PEEK π π +ARRO π +PEEK
+0
+0 0
+0.67
+0.40
+0.33
+0.33
+0.20
+0.20
+0.13
+0.40 0.40
+0.27
+0.20
+0.13
+0.07
+0.07 0.07
+0.07
+0.07
+0.00 0.00
+0.00
+0.00
+0.16
+Basic Clutter Semantic Overall
+0.49
+0.11
+0.24
+0.07
+0.07
+0.20
+Fig. 5: Real-World Zero-Shot Generalization Results. Task completion rates (including partial credit for grasping or reaching objects correctly) and task
+success rates across 3 task variants: BASIC, CLUTTER, and SEMANTIC in our Franka Sim-to-Real experiments (top) and WidowX BRIDGE experiments
+(bottom). Results are averaged over all trials and tasks within each variant. PEEK results are bolded for visibility. Full tables in Appendix Section I-E.
+A. Q1: Real-World Zero-Shot Generalization Experiments
+the image usually completely hides task-irrelevant objects,
+allowing the policy to solve the task more often by only
+focusing on low-level control.
+Meanwhile, ARRO, which masks-in the robot end-effector
+and task-relevant objects with pre-trained object detection
+models, often also includes task-irrelevant objects, confusing
+the 3DDA policy. PEEK’s VLM generalizes better to new ob-
+jects and its paths help guide the policy even in cases where
+parts of irrelevant objects are included in the observation.
+The baseline results demonstrate that answering only one
+Franka Sim-to-Real. We plot results in Figure 5 (top).
+Overall, 3DDA+PEEK improves vanilla 3DDA by 41.4×and
+outperforms the best baseline, 3DDA+HAMSTER, by 2×in
+overall success rates. While HAMSTER shows some semantic
+generalization via drawing paths (40% partial success on
+SEMANTIC), it fails catastrophically when distractor objects
+are present in the scene (0% partial success on CLUTTER).
+Instead, PEEK’s ability to also mask out irrelevant parts of
+of where to focus or what to do is not enough to achieve
+semantic generalization and visual robustness. We visualize
+example PEEK VLM predictions in Figure 3.
+WidowX BRIDGE. Next, we plot the WidowX results in
+Figure 5 (bottom). ACT+PEEK and π0+PEEK outperform
+their base models by 3.4×and 2.5×in overall success rates.
+ARRO does not improve overall success rates of either base
+model as its pre-trained object detection module often fails
+to identify correct objects in clutter, and almost always fails
+to detect the robot gripper. PEEK’s use of a VLM allows
+it to consistently mask-in the correct object and draw paths
+accurately starting from the gripper. The VLM predictions
+visualized in Figure 4 show how PEEK’s VLM provides
+effective paths and masks even in the face of distractors and
+tasks that require semantic and visual reasoning.
+Meanwhile, OTTER performs poorly—better than ACT but
+worse than standard π0, and far worse than either PEEK
+variation—π0+PEEK overall achieves a 4.5×better success
+rate. This result highlights the importance of a policy-
+agnostic approach, such as PEEK, that can provide explicit
+path and mask guidance even to already strong base policies.
+B. Q2: Does PEEK answer the where and what?
+Comparing the first columns of Franka Sim-to-Real (Fig-
+ure 3) in SIMULATION, BASIC, and CLUTTER, the benefits
+of paths and masking become apparent: masks remove dis-
+tractors from the image—showing where to attend to—and
+the paths guide the policy to pick up the object—showing
+what to do. Similar findings hold for the WidowX (Figure 4).
+While the masks tell the policy what to focus on, they
+alone are insufficient for solving semantic variation. Take,
+for example, the SEMANTIC tasks; the policies’ training data
+does not contain demonstrations featuring celebrities (“Give
+the banana to Jensen Huang” in Figure 4) or various kinds
+of sweet treats (“Knock over the syrup bottle”, “Put the blue
+cube next to the healthy items” in Figure 3). By letting
+the high-level VLM absorb the semantic generalization—
+proposing guiding paths—the policy can simply actualize the
+path into low-level actions to solve the task.
+C. Q3: How does each component contribute?
+Ablating Paths and
+Paths p Masks m Success (%)
+Masks. We ablate the
+contributions of paths
+p and masks m on
+the performance of a
+language-conditioned 3D
+policy (3DDA) on the
+TABLE I: Ablation of paths and
+masks on success rate.
+simulated cube stacking
+task in Table I. While the language-conditioned base policy
+can stack cubes, it often ignores instruction order, e.g.,
+placing the blue cube on the red instead of the reverse.
+Adding only paths or only masks improves performance by
++19.3% and +32.1%, respectively. Masks outperform paths
+since they simplify the scene by removing the distractor
+cube, while paths alone leave ambiguity. Yet both remain
+limited: cube stacking highlights the insufficiency of purely
+✗ ✗ 33.5 ±3.1
+✓ ✗ 52.8 ±2.9
+✗ ✓ 65.6 ±3.1
+✓ ✓ 73.6 ±3.9
+predictive or minimal representations. Combining paths and
+masks, PEEK achieves gains of +7.9% over paths, +20.8%
+over masks, and +40.1% over the base policy.
+VLM Design Choices. To study VLM design choices, we
+evaluate on 1k holdout samples from BRIDGE-v2 [41],
+using Dynamic Time Warping (DTW) for paths [46] and
+Intersection over Union (IoU) for masks. Reducing the base
+model from 13B to 3B yields no loss in accuracy (both
+have DTW 0.12, IoU 0.68) while enabling faster closed-loop
+inference. Adding RoboPoint slightly improves these metrics
+and preserves semantic reasoning ability [7]. Finally, joint
+prediction of paths and masks improves performance, giving
+a +19.3% relative gain over a mask-only model (IoU 0.57)
+without degrading path accuracy (DTW 0.12). Full results in
+Appendix Section I-D.
+Overall, we see that both paths and masks are essential
+to PEEK’s ability to enhance policy generalization, and our
+choice of a small VLM model that jointly predicts a unified
+path and mask representation great performance without
+sacrificing inference speed.
+VI. CONCLUSION AND LIMITATIONS
+We presented PEEK (Policy-agnostic Extraction of
+Essential Keypoints), a framework that leverages VLMs
+to offload high-level reasoning in robot manipulation. By
+predicting point-based intermediate representations—paths
+that specify what to do and masks that indicate where to
+attend—PEEK provides policies with simplified, annotated
+observations, allowing them to focus on how to act. Real-
+world evaluations demonstrate substantial improvements in
+zero-shot generalization across various policies.
+However, PEEK still inherits the biases and limitations of
+the underlying VLMs, which may fail in out-of-distribution
+scenarios or produce incorrect annotations. Our current rep-
+resentation is also limited to 2D point paths and masks;
+extending it to richer 3D or multimodal cues is an exciting
+direction. Moreover, although our annotation pipeline scales
+across existing robotics datasets, future work could explore
+how to bootstrap from a much broader corpus of video data.
+ACKNOWLEDGEMENTS
+We thank Abrar Anwar for helping create the PEEK
+logo, Helen Wang for lending us a difficult-to-obtain, official
+Labubu doll, Raymond Yu for help setting up the initial
+BRIDGE table and FoundationStereo pipeline, Markus Grotz
+for assistance in setting up the Franka controller stack
+(robits), Yi Li for HAMSTER baseline help, Andy Tang
+for assisting with initial BRIDGE camera alignment, and
+William Chen for providing exact measurements for us to
+align the BRIDGE camera positions as best as possible. We
+also thank Yondu.ai for hosting the Los Angeles Lerobot
+hackathon where we tried an early version of PEEK, and
+Yutai Zhou and Minjune Hwang for joining us in the
+competition.
+Additionally, we acknowledge funding from the Army
+Research Lab and compute resources from the University of
+Southern California’s Center for Advanced Research Com-
+puting (CARC).
+REFERENCES
+[1] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn, “Learning fine-
+grained bimanual manipulation with low-cost hardware,” in Robotics:
+Science and Systems XIX, Daegu, Republic of Korea, July 10-14,
+2023, K. E. Bekris, K. Hauser, S. L. Herbert, and J. Yu, Eds., 2023.
+[2] M. J. Kim, K. Pertsch, S. Karamcheti, et al., “Openvla:
+An open-source vision-language-action model,” arXiv preprint
+arXiv:2406.09246, 2024.
+[3] K. Black, N. Brown, D. Driess, et al., “pi 0: A vision-language-
+action flow model for general robot control,” arXiv preprint
+arXiv:2410.24164, 2024.
+[4] G. Yan, J. Zhu, Y. Deng, et al., “Maniflow: A dexterous manipulation
+policy via flow matching,” in Conference on Robot Learning (CoRL),
+2025.
+[5] J. Gao, S. Belkhale, S. Dasari, A. Balakrishna, D. Shah, and D.
+Sadigh, “A taxonomy for evaluating generalist robot policies,” 2025.
+[6] P. Atreya, K. Pertsch, T. Lee, et al., “Roboarena: Distributed real-
+world evaluation of generalist robot policies,” in Proceedings of the
+Conference on Robot Learning (CoRL 2025), 2025.
+[7] Y. Li, Y. Deng, J. Zhang, et al., “HAMSTER: Hierarchical action
+models for open-world robot manipulation,” in The Thirteenth Inter-
+national Conference on Learning Representations, 2025.
+[8] J. Lee, J. Duan, H. Fang, et al., Molmoact: Action reasoning models
+that can reason in space, 2025.
+[9] T.-W. Ke, N. Gkanatsios, and K. Fragkiadaki, “3d diffuser actor:
+Policy diffusion with 3d scene representations,” in First Workshop on
+Vision-Language Models for Navigation and Manipulation at ICRA
+2024, 2024.
+[10] J. Lin, H. Yin, W. Ping, P. Molchanov, M. Shoeybi, and S. Han,
+“Vila: On pre-training for visual language models,” in Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), Jun. 2024, pp. 26 689–26 699.
+[11] J. Shi, J. Qian, Y. J. Ma, and D. Jayaraman, “Plug-and-play object-
+centric representations from what and where foundation models,”
+ICRA, 2024.
+[12] D. Emukpere, R. Deffayet, B. Wu, et al., Disentangled object-centric
+image representation for robotic manipulation, 2025.
+[13] R. Mirjalili, T. J¨ ulg, F. Walter, and W. Burgard, “Augmented reality
+for robots (arro): Pointing visuomotor policies towards visual robust-
+ness,” arXiv preprint arXiv:2505.08627, 2025.
+[14] A. J. Hancock, A. Z. Ren, and A. Majumdar, “Run-time observation
+interventions make vision-language-action models more visually
+robust,” in 2025 IEEE International Conference on Robotics and
+Automation (ICRA), 2025, pp. 9499–9506.
+[15] C. Yuan, S. Joshi, S. Zhu, H. Su, H. Zhao, and Y. Gao, “Roboengine:
+Plug-and-play robot data augmentation with semantic robot segmen-
+tation and background generation,” arXiv preprint arXiv:2503.18738,
+2025.
+[16] H. Huang, F. Liu, L. Fu, et al., “Otter: A vision-language-
+action model with text-aware feature extraciton,” arXiv preprint
+arXiv:2503.03734, 2025.
+[17] P. Li, Y. Wu, Z. Xi, et al., “Controlvla: Few-shot object-centric
+adaptation for pre-trained vision-language-action models,” arXiv
+preprint arXiv:2506.16211, 2025.
+[18] S. Liu, Z. Zeng, T. Ren, et al., “Grounding dino: Marrying dino with
+grounded pre-training for open-set object detection,” arXiv preprint
+arXiv:2303.05499, 2023.
+[19] F. Locatello, D. Weissenborn, T. Unterthiner, et al., “Object-centric
+learning with slot attention,” in Advances in Neural Information
+Processing Systems, H. Larochelle, M. Ranzato, R. Hadsell, M.
+Balcan, and H. Lin, Eds., vol. 33, Curran Associates, Inc., 2020,
+pp. 11 525–11 538.
+[20] O. Biza, S. van Steenkiste, M. S. M. Sajjadi, G. F. Elsayed, A.
+Mahendran, and T. Kipf, “Invariant slot attention: Object discovery
+with slot-centric reference frames,” in ICML, 2023.
+[21] Y. Zhang, D. W. Zhang, S. Lacoste-Julien, G. J. Burghouts, and
+C. G. M. Snoek, “Unlocking slot attention by changing optimal trans-
+port costs,” in Proceedings of the 40th International Conference on
+Machine Learning, A. Krause, E. Brunskill, K. Cho, B. Engelhardt,
+S. Sabato, and J. Scarlett, Eds., ser. Proceedings of Machine Learning
+Research, vol. 202, PMLR, 23–29 Jul 2023, pp. 41 931–41 951.
+[22] M. Mosbach, J. N. Ewertz, A. Villar-Corrales, and S. Behnke,
+“Sold: Slot object-centric latent dynamics models for relational
+manipulation learning from pixels,” in International Conference on
+Machine Learning (ICML), 2025.
+[23] J. Gu, S. Kirmani, P. Wohlhart, et al., Rt-trajectory: Robotic task
+generalization via hindsight trajectory sketches, 2023.
+[24] D. Niu, Y. Sharma, G. Biamby, et al., “LLARVA: Vision-action in-
+struction tuning enhances robot learning,” in 8th Annual Conference
+on Robot Learning, 2024.
+[25] C.-P. Huang, Y.-H. Wu, M.-H. Chen, Y.-C. F. Wang, and F.-E. Yang,
+“Thinkact: Vision-language-action reasoning via reinforced visual
+latent planning,” arXiv preprint arXiv:2507.16815, 2025.
+[26] R. Zheng, Y. Liang, S. Huang, et al., “TraceVLA: Visual trace
+prompting enhances spatial-temporal awareness for generalist robotic
+policies,” in The Thirteenth International Conference on Learning
+Representations, 2025.
+[27] T. Xiao, H. Chan, P. Sermanet, et al., “Robotic skill acquistion via
+instruction augmentation with vision-language models,” in Proceed-
+ings of Robotics: Science and Systems, 2023.
+[28] J. Zhang, J. Zhang, K. Pertsch, et al., “Bootstrap your own skills:
+Learning to solve new tasks with large language model guidance,”
+in 7th Annual Conference on Robot Learning, 2023.
+[29] J. Zhang, K. Pertsch, J. Zhang, and J. J. Lim, “Sprint: Scalable policy
+pre-training via language instruction relabeling,” in International
+Conference on Robotics and Automation, 2024.
+[30] L. Smith, A. Irpan, M. G. Arenas, et al., “Steer: Flexible robotic
+manipulation via dense language grounding,” in 2025 IEEE Inter-
+national Conference on Robotics and Automation (ICRA), 2025,
+pp. 16 517–16 524.
+[31] W. Chen, S. Belkhale, S. Mirchandani, et al., “Training strategies for
+efficient embodied reasoning,” in 9th Annual Conference on Robot
+Learning, 2025.
+[32] K. Pertsch, Y. Lee, and J. J. Lim, “Accelerating reinforcement
+learning with learned skill priors,” in Conference on Robot Learning
+(CoRL), 2020.
+[33] A. Singh, H. Liu, G. Zhou, A. Yu, N. Rhinehart, and S. Levine,
+“Parrot: Data-driven behavioral priors for reinforcement learning,”
+in International Conference on Learning Representations, 2021.
+[34] A. Ajay, A. Kumar, P. Agrawal, S. Levine, and O. Nachum, “{opal}:
+Offline primitive discovery for accelerating offline reinforcement
+learning,” in International Conference on Learning Representations,
+2021.
+[35] J. Zhang, M. Heo, Z. Liu, et al., “EXTRACT: Efficient policy
+learning by extracting transferrable robot skills from offline data,”
+in Conference on Robot Learning, 2024.
+[36] W. Yuan, J. Duan, V. Blukis, et al., “Robopoint: A vision-language
+model for spatial affordance prediction in robotics,” in 8th Annual
+Conference on Robot Learning, 2024.
+[37] O. X.-E. Collaboration, A. O’Neill, A. Rehman, et al., Open X-
+Embodiment: Robotic learning datasets and RT-X models, 2023.
+[38] A. Khazatsky, K. Pertsch, S. Nair, et al., “Droid: A large-scale in-
+the-wild robot manipulation dataset,” 2024.
+[39] B. Liu, Y. Zhu, C. Gao, et al., “Libero: Benchmarking
+knowledge transfer for lifelong robot learning,” arXiv preprint
+arXiv:2306.03310, 2023.
+[40] N. Karaev, I. Rocco, B. Graham, N. Neverova, A. Vedaldi, and C.
+Rupprecht, “Cotracker: It is better to track together,” in European
+Conference on Computer Vision, Springer, 2025, pp. 18–35.
+[41] H. Walke, K. Black, A. Lee, et al., “Bridgedata v2: A dataset for
+robot learning at scale,” in Conference on Robot Learning (CoRL),
+2023.
+[42] M. Grotz, M. Shridhar, Y.-W. Chao, T. Asfour, and D. Fox, “Per-
+act2: Benchmarking and learning for robotic bimanual manipulation
+tasks,” in CoRL 2024 Workshop on Whole-body Control and Biman-
+ual Manipulation: Applications in Humanoids and Beyond.
+[43] K. Zakka, Mink: Python inverse kinematics based on MuJoCo,
+version 0.0.11, May 2025.
+[44] B. Wen, M. Trepte, J. Aribido, J. Kautz, O. Gallo, and S. Birchfield,
+“Foundationstereo: Zero-shot stereo matching,” in Proceedings of
+the Computer Vision and Pattern Recognition Conference, 2025,
+pp. 5249–5260.
+[45] N. Reimers and I. Gurevych, “Sentence-bert: Sentence embeddings
+using siamese bert-networks,” in Proceedings of the 2019 Conference
+on Empirical Methods in Natural Language Processing, Association
+for Computational Linguistics, Nov. 2019.
+[46] M. Memmel, J. Berg, B. Chen, A. Gupta, and J. Francis, “Strap:
+Robot sub-trajectory retrieval for augmented policy learning,” arXiv
+preprint arXiv:2412.15182, 2024.
+[47] Y. Wu, A. Kirillov, F. Massa, W.-Y. Lo, and R. Girshick, De-
+tectron2, https : / / github . com / facebookresearch /
+detectron2, 2019.

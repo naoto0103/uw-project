@@ -11,6 +11,14 @@ HAMSTER/Hamster_dev/
 HAMSTER/VILA/
 HAMSTER/Qwen3-VL/
 
+# Reference code and external repos (have their own .git)
+references/
+PEEK/
+RoboTwin2-Setup/
+
+# PDF papers (can be downloaded from arxiv)
+docs/research/ref_pdf/
+
 # Data files
 *.zarr
 *.pkl
@@ -23,11 +31,23 @@ HAMSTER/Qwen3-VL/
 ManiFlow/data/
 ManiFlow/third_party/
 
-# Results and outputs
+# Results and outputs (general)
 **/results/
-**/outputs/
 **/logs/
 **/wandb/
+**/eval_results/
+
+# Analysis - exclude regeneratable data, keep reports/tables
+analysis/raw_data/
+analysis/path_quality/grids/
+# Keep: analysis/outputs/ (tables, figures, reports for reproducibility)
+
+# Video files (evaluation recordings)
+*.mp4
+*.avi
+*.webm
+*.mov
+*.mkv
 
 # Cache
 __pycache__/
@@ -50,3 +70,4 @@ Thumbs.db
 *.tmp
 *.temp
 *.log
+nohup.out

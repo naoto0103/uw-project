@@ -1,0 +1,43 @@
+# RoboTwin 2.0 Original RGB Images (No Overlay)
+#
+# This config uses the Zarr-based dataset with original RGB images.
+# Used for baseline ManiFlow training (conditions 1, 4).
+
+name: robotwin2_original
+
+# Image shape
+image_shape: &image_shape [3, 224, 224]
+
+# Shape metadata for observations and actions
+shape_meta: &shape_meta
+  obs:
+    # Original RGB image
+    image:
+      shape: *image_shape
+      type: rgb
+      horizon: ${n_obs_steps}
+
+    # Robot state (joint positions)
+    agent_pos:
+      shape: [14]
+      type: low_dim
+      horizon: ${n_obs_steps}
+
+  action:
+    shape: [14]
+    horizon: ${horizon}
+
+# Dataset configuration - Zarr-based
+dataset:
+  _target_: maniflow.dataset.robotwin2_original_zarr_dataset.RoboTwin2OriginalZarrDataset
+
+  # Zarr file path (created by convert_original_to_zarr.py)
+  zarr_path: /gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration/ManiFlow/ManiFlow/data/zarr/clean_original.zarr
+
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  task_name: robotwin2_original

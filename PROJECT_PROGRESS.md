@@ -1,7 +1,7 @@
 # HAMSTER-ManiFlow統合プロジェクト: 進捗状況
 
-**最終更新**: 2025-11-20
-**プロジェクトディレクトリ**: `~/HAMSTER-ManiFlow-Integration/`
+**最終更新**: 2025-12-02
+**プロジェクトディレクトリ**: `/mmfs1/gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration/`
 
 ---
 
@@ -25,65 +25,53 @@ HAMSTERの論文（arXiv 2502.05485, Table 3）のアブレーション研究に
 
 ## 🖥️ 開発環境
 
-### ハードウェア
+### 現在の環境: UW Hyak HPC クラスタ ✅
+
+**移行完了**: 2025-12-02
+
+#### ハードウェア
+- **クラスタ**: UW Hyak HPC
+- **GPU**: NVIDIA A40 (48GB VRAM) / L40s (48GB VRAM)
+- **ストレージ**: `/gscratch/scrubbed/naoto03/`
+
+#### コンテナ環境
+- **Singularity**: `hamster-maniflow_latest.sif`
+- **ベースイメージ**: `nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04`
+- **Python**: 3.10.x
+- **PyTorch**: 2.x.x+cu121
+- **PyTorch3D**: 0.7.x
+
+#### 起動コマンド
+```bash
+# GPUノード取得
+srun -p gpu-a40 -A escience --nodes=1 --cpus-per-task=32 \
+     --mem=400G --time=24:00:00 --gpus=1 --pty /bin/bash
+
+# Singularityインスタンス起動
+module load singularity
+singularity instance start --nv \
+    --bind /gscratch/:/gscratch/:rw \
+    ~/singularity/hamster-maniflow_latest.sif hamster
+
+# コンテナに入る
+singularity shell instance://hamster
+```
+
+#### 追加ライブラリ（ユーザーローカル）
+`~/.local/lib/python3.10/site-packages/` に以下をインストール済み:
+- transformers 4.57.3 (Qwen3-VL対応)
+- openai 2.8.1
+- その他依存関係
+
+---
+
+### 旧環境: ローカルPC (参考情報)
+
+#### ハードウェア
 - **GPU**: NVIDIA GeForce RTX 5090 (32GB VRAM)
 - **CUDA Driver**: 13.0
 
-### ソフトウェア要件
-
-**重要**: RTX 5090はCUDA 12.8+を必要とするため、PyTorch nightlyビルドが必須です。
-
-#### Conda環境構成（3環境）
-
-1. **`vila`環境** (HAMSTER用)
-   ```bash
-   conda activate vila
-   ```
-   - Python: 3.10.19
-   - **PyTorch: 2.10.0.dev20251114+cu128** (nightly)
-   - 用途: HAMSTERサーバー（VILA-1.5-13B VLM）
-   - 主要パッケージ: transformers, accelerate, gradio, openai
-
-2. **`qwen3`環境** (Qwen3-VL用) ⭐新規
-   ```bash
-   conda activate qwen3
-   ```
-   - Python: 3.10.x
-   - **PyTorch: 2.10.0.dev20251114+cu128** (nightly)
-   - **transformers: >= 4.57.0**
-   - 用途: Qwen3-VLサーバー（Qwen3-VL-8B-Instruct VLM）
-   - 主要パッケージ: transformers, fastapi, uvicorn, pillow, openai
-
-3. **`maniflow`環境** (ManiFlow用)
-   ```bash
-   conda activate maniflow
-   ```
-   - Python: 3.10.x
-   - **PyTorch: 2.10.0.dev20251114+cu128** (nightly)
-   - **pytorch3d: 0.7.8** (ソースからビルド)
-   - 用途: ManiFlowポリシー訓練・推論
-   - 主要パッケージ: hydra-core, zarr, wandb
-
-#### PyTorch Nightly インストール
-
-RTX 5090対応のため、両環境でPyTorch nightlyを使用:
-
-```bash
-pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
-```
-
-#### pytorch3d ビルド要件
-
-**重要**: pytorch3d 0.7.8はPyTorch nightlyと互換性を持たせるため、**gcc 11.2.0**でビルドする必要があります。
-
-```bash
-# gcc 15.2.0ではC++ヘッダ競合が発生するため、gcc 11.2.0を使用
-export CC=gcc-11
-export CXX=g++-11
-pip install "git+https://github.com/facebookresearch/pytorch3d.git@v0.7.8"
-```
-
-**理由**: gcc 15.2.0のC++標準ライブラリヘッダ（`<cstdint>`など）がPyTorch nightlyのヘッダと競合するため。
+**注意**: RTX 5090はCUDA 12.8+を必要とするため、PyTorch nightlyビルドが必須でした。現在はHyak環境に移行済み。
 
 ---
 
@@ -776,7 +764,7 @@ VILAの使用を継続し、Qwen3-VLについては以下のいずれかを検�
 
 ---
 
-### Phase 3.6: 動画でのQwen3パス生成評価 (✅ Stage 2完了: 2025-11-25)
+### Phase 3.6: 動画でのQwen3パス生成評価 (✅ 完了: 2025-12-02)
 
 #### 目的
 RoboTwin環境の動画データを用いて、Qwen3-VLの時間的ロバスト性を評価する。各フレームに対してパス生成を行い、物体・ロボットの位置変化に対する一貫性を検証する。
@@ -827,7 +815,7 @@ RoboTwin環境の動画データを用いて、Qwen3-VLの時間的ロバスト�
   - [x] 206フレーム中204成功 (99.0%)
   - [x] 動画出力: `dual_bottles_pick_hard_bimanual/episode_00/qwen3_bimanual_path_video.mp4`
 
-#### Stage 3: RoboTwin 2.0環境 (🔄 進行中: 2025-11-25)
+#### Stage 3: RoboTwin 2.0環境 (✅ 完了: 2025-12-02)
 - [x] RoboTwin 2.0セットアップ
   - [x] リポジトリクローン (`ManiFlow/third_party/RoboTwin2.0/`)
   - [x] アセットダウンロード (背景、ロボット、オブジェクト)
@@ -843,11 +831,11 @@ RoboTwin環境の動画データを用いて、Qwen3-VLの時間的ロバスト�
   - [x] `generate_paths_robotwin2_full.py` (全フレーム対応)
 - [x] 動画生成スクリプト実装
   - [x] `create_video_robotwin2.py` (パス可視化・MP4出力)
-- [ ] 全フレームパス生成実行
-  - [x] beat_block_hammer episode_00: 34/126フレーム (27%) 処理中断
-  - [ ] 残り11エピソード
-- [ ] 動画生成実行
-- [ ] 評価レポート作成
+- [x] 全フレームパス生成実行 ✅
+- [x] 動画生成実行 ✅
+- [x] 評価完了 ✅
+
+**Phase 3.6結論**: Qwen3-VL-8Bはシングルアーム＋物体可視状態で高精度なパス生成が可能。時間的一貫性も確認済み。Bimanualでも99%成功率達成。
 
 **使用モデル**: Qwen3-VL-8B-Instruct
 **プロンプト**:
@@ -952,7 +940,7 @@ HAMSTER/results/robotwin2_stage3/
 
 ---
 
-### Phase 3.7: Hyak HPC環境移行 (🔄 進行中: 2025-11-26)
+### Phase 3.7: Hyak HPC環境移行 (✅ 完了: 2025-12-02)
 
 #### 目的
 ローカル開発環境（RTX 5090）からUW Hyak HPCクラスタ（A40/L40s GPU）への環境移行を行い、大規模トレーニングを可能にする。
@@ -1007,19 +995,20 @@ Dockerfile                         │                           │
 - [x] サブディレクトリの.git削除
   - [x] HAMSTER/.git, ManiFlow/.git等を削除
   - [x] 単一リポジトリとして管理
-- [ ] GitHub Actionsでビルド成功
+- [x] GitHub Actionsでビルド成功 ✅
   - [x] PyTorchインストール修正（バージョン指定削除）
   - [x] ディスク容量確保（30GB削減）
   - [x] numpy依存関係解決（>=1.24,<2.0）
-  - [ ] PyTorch3Dビルド成功
-- [ ] Hyakでのセットアップ
-  - [ ] Singularityイメージpull
-  - [ ] インスタンス起動
-  - [ ] 動作確認
-- [ ] データ転送
-  - [ ] コードのgit clone
-  - [ ] RoboTwinデータのrsync
-  - [ ] モデルのHuggingFace自動ダウンロード
+  - [x] PyTorch3Dビルド成功 ✅
+- [x] Hyakでのセットアップ ✅
+  - [x] Singularityイメージpull完了
+  - [x] インスタンス起動確認
+  - [x] GPU動作確認 (A40)
+- [x] データ転送 ✅
+  - [x] コードのgit clone
+  - [x] RoboTwinデータのrsync
+  - [x] Qwen3-VLモデルのダウンロード
+  - [x] 追加ライブラリのインストール (transformers 4.57.3, openai等)
 
 #### 実装ファイル
 ```
@@ -1220,6 +1209,97 @@ GPU: NVIDIA A40 (または L40S)
 PyTorch3D: 0.7.x
 transformers: 4.46.1
 SAPIEN: 3.0.0b1
+```
+
+---
+
+#### Step 5.5: 追加ライブラリの設定（重要）
+
+Singularityコンテナ内の一部ライブラリ（特にQwen3-VL関連）はバージョンが古いか互換性の問題があるため、ユーザーローカルに別途インストールしたパッケージを優先的に読み込む必要がある。
+
+**インストール済みの追加ライブラリ** (`~/.local/lib/python3.10/site-packages/`):
+```
+transformers          4.57.3    # Qwen3-VL対応の新バージョン
+openai                2.8.1     # OpenAI互換APIクライアント
+pydantic              2.12.5    # FastAPI用
+pydantic_core         2.41.5
+huggingface_hub       0.36.0
+tokenizers            0.22.1
+httpx                 0.28.1    # 非同期HTTP
+httpcore              1.0.9
+numpy                 2.2.6
+safetensors           0.7.0
+requests              2.32.5
+tqdm                  4.67.1
+typing_extensions     4.15.0
+```
+
+**スクリプト実行時のコマンド形式**:
+
+Singularity環境でPythonスクリプトを実行する際は、以下のようにコマンドを打つ必要がある：
+
+```bash
+# 基本形式（インスタンス使用）
+singularity exec instance://hamster python <script.py>
+
+# 直接実行（インスタンスなし）- 基本コマンド
+singularity exec --nv \
+    --bind /gscratch/:/gscratch/:rw \
+    /mmfs1/gscratch/scrubbed/${USER}/singularity/hamster-maniflow_latest.sif \
+    python <script.py>
+```
+
+**追加ライブラリを優先読み込みするオプション**:
+
+コンテナ内のライブラリ（特にopenai）よりもユーザーローカルのライブラリを優先させる場合：
+
+```bash
+# PYTHONPATH でユーザーローカルを先頭に追加
+# 注意: Singularityの--envでは$PYTHONPATHのシェル展開が効かないので単独で指定
+singularity exec --nv \
+    --bind /gscratch/:/gscratch/:rw \
+    --env PYTHONPATH=/mmfs1/gscratch/scrubbed/${USER}/.local/lib/python3.10/site-packages \
+    /mmfs1/gscratch/scrubbed/${USER}/singularity/hamster-maniflow_latest.sif \
+    python <script.py>
+```
+
+**HuggingFaceキャッシュディレクトリの指定（重要）**:
+
+HuggingFace関連のスクリプト（Qwen3-VL等）を実行する際は、キャッシュディレクトリを書き込み可能な場所に指定する必要がある。指定しないとコンテナ内の読み取り専用パス `/workspace/cache` に書き込もうとして `OSError: Read-only file system` が発生する：
+
+```bash
+--env HF_HOME=/mmfs1/gscratch/scrubbed/${USER}/.cache/huggingface
+```
+
+**Qwen3-VLサーバー起動（推奨コマンド）**:
+
+以下の環境変数が必須：
+- `HF_HOME`: HuggingFaceキャッシュを書き込み可能な場所に指定
+- `PYTHONPATH`: ローカルインストールのopenai/transformers等を優先読み込み（コンテナ内のopenaiは古く`proxies`引数エラーが出る）
+
+```bash
+singularity exec --nv \
+    --bind /gscratch/:/gscratch/:rw \
+    --env HF_HOME=/mmfs1/gscratch/scrubbed/${USER}/.cache/huggingface \
+    --env PYTHONPATH=/mmfs1/gscratch/scrubbed/${USER}/.local/lib/python3.10/site-packages \
+    /mmfs1/gscratch/scrubbed/${USER}/singularity/hamster-maniflow_latest.sif \
+    python /mmfs1/gscratch/scrubbed/${USER}/projects/HAMSTER-ManiFlow-Integration/HAMSTER/server_qwen3.py --port 8001
+```
+
+**パス生成スクリプト実行例**:
+
+パス生成スクリプトはQwen3-VLサーバーにAPIリクエストを送るため、`PYTHONPATH`の設定が必要：
+
+```bash
+# Bimanualパス生成（VERSION 19）
+singularity exec --nv \
+    --bind /gscratch/:/gscratch/:rw \
+    --env HF_HOME=/mmfs1/gscratch/scrubbed/${USER}/.cache/huggingface \
+    --env PYTHONPATH=/mmfs1/gscratch/scrubbed/${USER}/.local/lib/python3.10/site-packages \
+    /mmfs1/gscratch/scrubbed/${USER}/singularity/hamster-maniflow_latest.sif \
+    python /mmfs1/gscratch/scrubbed/${USER}/projects/HAMSTER-ManiFlow-Integration/HAMSTER/tests/generate_paths_robotwin2_full.py \
+    --tasks open_laptop --episodes 1 \
+    --base-dir /mmfs1/gscratch/scrubbed/${USER}/projects/HAMSTER-ManiFlow-Integration/HAMSTER/results/robotwin2_bimanual
 ```
 
 ---
@@ -1527,11 +1607,12 @@ cd $PROJECT_DIR
 | **Phase 2** | 5 | 5 | **100%** ✅ |
 | **Phase 3** | 7 | 7 | **100%** ✅ |
 | **Phase 3.5** | 10 | 10 | **100%** ✅ |
-| **Phase 3.6** | 11 | 14 | **79%** ✅ Stage 2完了 |
+| **Phase 3.6** | 14 | 14 | **100%** ✅ |
+| **Phase 3.7** | 12 | 12 | **100%** ✅ |
 | **Phase 4** | 3 | 5 | 60% |
 | **Phase 5** | 0 | 4 | 0% |
 | **Phase 6** | 0 | 4 | 0% |
-| **全体** | 50 | 63 | **79%** |
+| **全体** | 65 | 75 | **87%** |
 
 ### タイムライン
 
@@ -1884,11 +1965,14 @@ HAMSTER-ManiFlow-Integration/
 | 2025-11-25 | beat_block_hammer episode_00 パス生成中断 (34/126フレーム, 27%) | Claude Code |
 | 2025-11-27 | **Phase 3.7**: GitHub Actionsビルド成功、DockerHubにイメージpush完了 | Claude Code |
 | 2025-11-27 | Hyak環境セットアップ完全ガイド作成 (Step 1-12 + トラブルシューティング) | Claude Code |
+| 2025-12-02 | **Phase 3.6完了**: 全Stage完了、Qwen3-VLの時間的ロバスト性確認 | Claude Code |
+| 2025-12-02 | **Phase 3.7完了**: Hyak HPC環境移行完了、Singularity動作確認 | Claude Code |
+| 2025-12-02 | Hyak環境でClaude Code実行開始 | Claude Code |
 
 ---
 
-**プロジェクトステータス**: 🟢 **Phase 3.7進行中（Hyakセットアップ待ち）、Phase 4実行中（60%）**
+**プロジェクトステータス**: 🟢 **Phase 3.6/3.7完了、Hyak環境で開発中、Phase 4実行中（60%）**
 
-**次回アクション**: HyakでSingularityイメージpull (`singularity pull docker://naototo0103/hamster-maniflow:latest`)
+**次回アクション**: Phase 4残タスク（トレーニングスクリプト作成、他タスク設定ファイル作成）→ Phase 5トレーニング開始
 
-**最終更新**: 2025-11-27
+**最終更新**: 2025-12-02

@@ -1,0 +1,1043 @@
+HAMSTER: HIERARCHICAL ACTION MODELS FOR
+OPEN-WORLD ROBOT MANIPULATION
+Yi Li⋆‡1,2, Yuquan Deng⋆2, Jesse Zhang⋆1,3, Joel Jang1,2, Marius Memmel2, Raymond Yu2
+Caelan Garrett1, Fabio Ramos1, Dieter Fox1,2, Anqi Li†1, Abhishek Gupta†1,2, Ankit Goyal†1
+1NVIDIA 2University of Washington 3University of Southern California
+ABSTRACT
+Large foundation models have shown strong open-world generalization to com-
+plex problems in vision and language, but similar levels of generalization have yet
+to be achieved in robotics. One fundamental challenge is the lack of robotic data,
+which are typically obtained through expensive on-robot operation. A promising
+remedy is to leverage cheaper, “off-domain” data such as action-free videos, hand-
+drawn sketches or simulation data. In this work, we posit that hierarchical vision-
+language-action (VLA) models can be more effective in utilizing off-domain data
+than standard monolithic VLA models that directly finetune vision-language mod-
+els (VLMs) to predict actions. In particular, we study a class of hierarchical VLA
+models, where the high-level VLM is finetuned to produce a coarse 2D path in-
+dicating the desired robot end-effector trajectory given an RGB image and a task
+description. The intermediate 2D path prediction is then served as guidance to
+the low-level, 3D-aware control policy capable of precise manipulation. Doing
+so alleviates the high-level VLM from fine-grained action prediction, while re-
+ducing the low-level policy’s burden on complex task-level reasoning. We show
+that, with the hierarchical design, the high-level VLM can transfer across signif-
+icant domain gaps between the off-domain finetuning data and real-robot testing
+scenarios, including differences on embodiments, dynamics, visual appearances
+and task semantics, etc. In the real-robot experiments, we observe an average of
+20% improvement in success rate across seven different axes of generalization
+over OpenVLA, representing a 50% relative gain. Visual results are provided at:
+https://hamster-robot.github.io/
+1 INTRODUCTION
+Developing general robot manipulation policies has been notoriously difficult. With the advent of
+large vision-language models (VLMs) that display compelling generalization capabilities, there is
+optimism that the same recipe is directly applicable to robot manipulation. A line of prior work (Bro-
+han et al., 2023a; Kim et al., 2024; Black et al., 2024) builds open-world vision-language-action
+models (VLAs) by finetuning off-the-shelf pretrained VLMs to directly produce robot actions. These
+VLA models, which we refer to in this work as monolithic VLA models, rely crucially on large
+robotics datasets, complete with on-robot observations, e.g., images and proprioceptive states, and
+actions. However, on-robot data is expensive, since end-to-end observation-action pairs are typically
+collected on the robot hardware through, e.g., teleoperation. Despite recent community-wide efforts
+in building large-scale robotics datasets (Collaboration et al., 2023; Khazatsky et al., 2024), the
+size, quality, and diversity of existing robotics datasets are still limited, and monolithic VLA models
+have yet to demonstrate emergent capability comparable to VLMs and LLMs in other domains of
+study. Moreover, monolithic VLA models are constrained by their inference frequency to achieve
+dexterous and dynamic manipulation tasks (Brohan et al., 2023a; Kim et al., 2024).
+On the other hand, relatively small robot policy models have shown impressive dexterity and robust-
+ness. Such models have demonstrated promise across a range of complex tasks involving contact-
+rich manipulation and 3D reasoning, spanning domains from tabletop manipulation (Shridhar et al.,
+⋆ co-first authors ‡ project lead † equal advising
+1
+Imitation Learning
+Data: In-Domain Robot Teleop
+Data: Large-Scale
+Robot Teleop
+VLA Models HAMSTER: VLM +
+Imitation Learning
+Data: In-Domain
+Robot Teleop
+Data: Easy to Obtain, Off-Domain Data
+Web Data
+...
+Simulators Other Robot
+HAMSTER VLM
+✍ Draw 2D
+Path
+Point Prediction
+Low-Level Policy
+Vision Language Action Model
+Low-Level Policy
+a
+a
+Generalization: Low
+Data: In
+Domain
+Robot
+Teleop
+a
+Generalization: Medium Generalization: High
+Figure 1: Overview of HAMSTER, VLAs and “smaller” imitation learning methods. HAMSTER’s hierarchi-
+cal design results in better generalization with a small amount of in-domain data. HAMSTER is able to utilize
+cheap training sources such as videos or simulations for enhanced generalization.
+2023; Goyal et al., 2023; 2024; Ke et al., 2024) to fine dexterous manipulation (Chi et al., 2023;
+Zhao et al., 2023). Trained on relatively small datasets, these models show local robustness, and can
+achieve dexterous and high-precision control. However, they are often brittle to drastic changes in
+the environment or semantic description of the tasks (Pumacay et al., 2024). These models also can
+struggle to effectively leverage simulation data for real-world manipulation tasks due to sim-to-real
+gaps in visual appearances and system dynamics (Li et al., 2024; Mandlekar et al., 2021).
+In this work, we ask – how can we marry the generalization benefits of large VLMs, with the ef-
+ficiency, local robustness, and dexterity of small policy models? Our key insight is that, instead of
+directly predicting robot actions, VLMs can be fine-tuned to produce intermediate representations
+as high-level guidance on solving the robot manipulation task. The intermediate representation can
+then be consumed by the low-level policy model to produce actions, alleviating the low-level policy
+from the burden of long-horizon planning and complex, semantic reasoning. Further, if the inter-
+mediate representations are chosen such that they are 1) easily obtainable from image sequences;
+2) largely embodiment agnostic; and 3) sufficiently robust to subtle changes in dynamics, the VLM
+can be fine-tuned with off-domain data where robot actions are unavailable or inaccurate. Such off-
+domain data does not need to be collected on the actual robot hardware. Examples of off-domain
+data include action-free video data, simulation data, human videos, and videos of robot with differ-
+ent embodiments. These off-domain data are generally easier to collect and may already be abundant
+in existing datasets. We hypothesize, and show experimentally in Fig 8, that this hierarchical sepa-
+ration can allow VLA models to more effectively bridge the domain gap between off-domain data
+and in-domain robotic manipulation.
+To this end, we propose a hierarchical architecture for VLAs, HAMSTER (Hierarchical Action
+Models with SeparaTEd Path Representations), where large fine-tuned VLMs are connected to low-
+level policy models via 2D path representations1. A 2D path is a coarse trajectory of the 2D image-
+plane position of the robot end-effector2, as well as where the gripper state changes, i.e., opens and
+closes (see Fig. 2). These 2D paths can be obtained cheaply and automatically from data sources
+such as action-free videos or physics simulations, using point tracking (Doersch et al., 2023; Karaev
+et al., 2025), hand-sketching (Gu et al., 2023), or proprioceptive projection. This allows HAM-
+STER can effectively leverage these abundant and inexpensive off-domain data when fine-tuning
+the high-level VLM. The hierarchical design presented in HAMSTER also offers additional advan-
+tages through the decoupling of VLM training and low-level action prediction. Specifically, while
+the higher-level VLM is predicting semantically meaningful trajectories from monocular RGB cam-
+era inputs, the lower-level policy models can additionally operate from rich 3D and proprioceptive
+inputs. In doing so, HAMSTER inherits the semantic reasoning benefits of VLMs along with the 3D
+1Representations similar to 2D paths has been explored in the robot learning literature (Gu et al., 2023),
+primarily as a technique for flexible task specification. We refer readers to section 2 for a detailed discussion.
+2For human video, this corresponds to the position of the palm center or fingertips.
+2
+reasoning and spatial awareness benefits of 3D policy models (Goyal et al., 2024; Ke et al., 2024).
+Moreover, the high-level VLM and low-level policy model can be queried at different frequencies
+In summary, we study a family of hierarchical VLA models HAMSTERs, where finetuned VLMs
+are connected to low-level 3D policy models (Goyal et al., 2024; Ke et al., 2024). The 2D paths
+produced by high-level VLMs serve as guidance for a low-level policy that operates on rich 3D and
+proprioceptive inputs, allowing low-level policies to focus on robustly generating precise, spatially-
+aware actions. In our experiments, we observe an average of 20% improvement in success rate
+over seven different axes of generalization over OpenVLA (Kim et al., 2024), which amounts to
+50% relative gain, as shown in Table 6. Since HAMSTER is built on both open-source VLMs and
+low-level policies, it can serve as a fully open-sourced enabler for the community-building vision-
+language-action models. It is important to note that while we are certainly not the first to propose
+hierarchical VLA models (Gu et al., 2023; Nasiriany et al., 2024a), we propose the novel insight
+that this type of hierarchical decomposition allows for these models to make use of abundant off-
+domain data for improving real-world control. This opens the door to alternative ways of training
+large vision-language-action models using cheaper and more abundant data sources.
+2 RELATED WORK
+LLMs and VLMs for robotics. Early attempts in leveraging LLMs and VLMs for robotics are
+through pretrained language (Jang et al., 2022; Shridhar et al., 2023; Singh et al., 2023) and vi-
+sual (Shah & Kumar, 2021; Parisi et al., 2022; Nair et al., 2023; Ma et al., 2023) representations.
+However, these are not sufficient for complex semantic reasoning and generalization to the open
+world (Brohan et al., 2022; Zitkovich et al., 2023). Recent research has focused on directly lever-
+aging open world reasoning and generalization capability of LLMs and VLMs, by prompting or
+fine-tuning them to, e.g., generate plans (Duan et al., 2024; Huang et al., 2023b; Lin et al., 2023;
+Liang et al., 2023; Singh et al., 2023; Brohan et al., 2023b), construct value (Huang et al., 2023a)
+and reward functions (Kwon et al., 2023; Sontakke et al., 2023; Yu et al., 2023; Ma et al., 2024;
+Wang et al., 2024). Our work is more closely related to the literature on VLA models, summarized
+below.
+Monolithic VLA models as language-conditioned robot policies. Monolithic VLA models have
+been proposed to produce robot actions given task description and image observations directly (Bro-
+han et al., 2022; Jiang et al., 2023; Zitkovich et al., 2023; Team et al., 2024; Kim et al., 2024;
+Radosavovic et al., 2023). Monolithic VLA models are often constructed from VLMs (Liu et al.,
+2024d; Bai et al., 2023; Driess et al., 2023; Lin et al., 2024), and are trained on large-scale on-robot
+data (Brohan et al., 2022; Collaboration et al., 2023; Khazatsky et al., 2024) to predict actions as
+text or special tokens. However, due to the lack of coverage in existing robotics datasets, they must
+be finetuned in-domain on expensive on-robot data. Their action frequency is also constrained by
+inference frequency, limiting their capability to achieve dexterous and dynamic tasks. The most rele-
+vant monolithic VLA model to our work is LLARVA (Niu et al., 2024), which predicts end-effector
+trajectories in addition to robot actions. However, LLARVA does not use trajectory prediction to
+control the robot; rather, it uses it as an auxiliary task to improve action prediction. Therefore,
+LLARVA still suffers from the limitations of monolithic VLA models. In contrast, our work takes a
+hierarchical approach, enabling us to use specialist lower-level policies that take in additional inputs
+the VLMs cannot support, such as 3D pointclouds, to enable better imitation learning. Our predicted
+paths then enable these lower-level policies to generalize more effectively.
+VLMs for predicting intermediate representations. Our work bears connections to prior meth-
+ods using vision-language models to predict intermediate representations. These methods can be
+categorized by the choice of predicted representations:
+Point-based predictions: A common intermediate prediction interface has been keypoint affor-
+dances (Stone et al., 2023; Sundaresan et al., 2023; Nasiriany et al., 2024b; Yuan et al., 2024b;
+Kuang et al., 2024). Keypoint affordances can be obtained through using open-vocabulary detec-
+tors (Minderer et al., 2022), iterative prompting of VLMs (Nasiriany et al., 2024b), or fine-tuning
+detectors to identify certain parts of an object by semantics (Sundaresan et al., 2023). Perhaps most
+related to our work, Yuan et al. (2024b) finetune a VLM to predict objects of interest as well as free
+space for placing an object, and Liu et al. (2024b) propose a mark-based visual prompting procedure
+to predict keypoint affordances as well as a fixed number of waypoints. As opposed to these, our
+3
+work finetunes a VLM model to not just predict points but rather entire 2D paths, making it more
+broadly applicable across robotic tasks.
+Trajectory-based predictions: The idea of using trajectory-based task specifications to condition
+low-level policies was proposed in RT-trajectory (Gu et al., 2023), largely from the perspective of
+flexible task specification. This work also briefly discusses the possibility of combining trajectory-
+conditioned model with trajectory sketches generated by a pre-trained VLM. Complementary to
+RT-Trajectory, the focus of this work is less on the use of trajectory sketches for task specifica-
+tion, but rather a hierarchical design of VLAs such that the high-level VLM can be fine-tuned with
+relative cheap and abundant data sources. This could include data such as action-free videos, or sim-
+ulation data that look very different from the real world. We show that the emergent generalization
+capability of VLMs from its web-scale pretraining allows it transfer to test scenarios of interest with
+considerable visual and semantic variations. While RT-trajectory uses human effort or off-the-shelf
+pre-trained VLMs to generate trajectories, we show that fine-tuning VLM models on cheap data
+sources can generate significantly more accurate and generalizable trajectories (see Table. 5). More-
+over, our instantiation of this architecture enables the incorporation of rich 3D and proprioceptive
+information, as compared to monocular 2D policies (Gu et al., 2023).
+Similarly, the emergence of track-any-point (TAP) models (Doersch et al., 2023; Wang et al., 2023)
+has enabled policies conditioned on object trajectories (Yuan et al., 2024a; Xu et al., 2024; Bharad-
+hwaj et al., 2024) or points sampled from a fixed grid in the image (Wen et al., 2023). While our
+current formulation focuses on end-effector trajectories, this framework can naturally extend to pre-
+dicting object trajectories or other motion cues. By leveraging the predictive capabilities of VLMs,
+such an extension could further enhance the model’s ability to generalize across diverse scenarios
+and improve its capacity for fine-grained motion reasoning.
+Leveraging simulation data for training robot policies. There has been extensive work on lever-
+aging simulation for robot learning. Simulation data is popular in reinforcement learning (RL),
+as RL on real robotic systems is often impractical due to high sample complexity and safety con-
+cerns (Lee et al., 2020; Handa et al., 2023; Torne et al., 2024). Recently, simulation has been also
+exploited to directly generate (Fishman et al., 2022) or bootstrap (Mandlekar et al., 2023) large-scale
+datasets for imitation learning, to reduce the amount of expensive robot teleoperation data needed.
+Our work takes a different approach – using simulation data to finetune a VLM, and showing that
+VLM is able to transfer the knowledge learned from simulation data to real robot systems, despite
+considerable visual differences. A related observation is recently made by (Yuan et al., 2024b), but
+they use keypoint affordances as the interface between the VLM and the low-level policy as opposed
+to more general expressive 2D path representations.
+3 BACKGROUND
+Imitation Learning via Supervised Learning. Imitation learning trains a policy πθ(a |s,o,z)
+from expert demonstrations, where s denotes proprioceptive inputs, o includes perceptual obser-
+vations (e.g., RGB images, depth), and z provides task instructions. Given an expert dataset
+D= {(si,oi,zi,ai)}N
+i=1, the policy is optimized via maximum likelihood estimation, maximizing
+E(si ,oi ,zi ,ai )∼D[log πθ(ai |si,oi,zi)]. Despite advancements in architectures such as 3D policy
+representations (Goyal et al., 2023; Ke et al., 2024), generalizing to novel semantic or visual vari-
+ations remains challenging. In this paper, we explore how VLMs can enhance imitation learning
+models for better generalization.
+Vision-Language Models. VLMs (Liu et al., 2024a; Lin et al., 2024; Liu et al., 2024d) are large
+transformer models (Vaswani et al., 2023) that accept both vision and text tokens to generate text
+responses. They are pre-trained on extensive multimodal datasets (Zhu et al., 2023; Byeon et al.,
+2022) and later fine-tuned on high-quality, task-specific data (Shen et al., 2021; Lu et al., 2022). By
+tokenizing each modality into a shared space, these models autoregressively produce sequences of
+text tokens conditioned on an image and prior tokens. In our work, we assume access to such a pre-
+trained, text-and-image VLM (Lin et al., 2024; Liu et al., 2024d), further fine-tuned via a supervised
+loss that minimizes the negative log-likelihood of the target tokens.
+4
+VLM Input
+Instruction: "Put the spicy
+food in the left bowl."
+HAMSTER
+VLM
+Policy Input
+Proprio: [EEF pos, ,...] θ
+Instruction: "Put
+z =
+the object in the bowl."
+Low-Level
+3D Policy
+at ot
+Draw
+2D Path
+✍
+VLM response:
+[(0.25, 0.1, 0),
+(0.29, 0.3, 0),
+(0.31, 0.4, 1),
+(0.33, 0.5, 1)]
+First Image o1
+(a) VLM Path Prediction
+Image +
+Path
+Depth/3D
+Observation
+(b) Low-Level Action Execution
+Figure 2: Depiction of HAMSTER’s execution. The high-level VLM is called once to generate the 2D path.
+The low-level policy is conditioned on the 2D path and interacts with the environment sequentially to execute
+low-level actions. The path predicted by the VLM enhances the low-level policy generalization capability.
+4 HAMSTER: HIERARCHICAL ACTION MODELS FOR ROBOTIC LEARNING
+In this work, we examine how VLA models can leverage relatively abundant data and demonstrate
+cross-domain transfer capabilities, as opposed to relying purely on expensive observation-language-
+action data collected on a robot. HAMSTER is a family of hierarchical VLA models designed for
+this purpose, exhibiting generalizable and robust manipulation. It consists of two interconnected
+models: first, a higher-level VLM that is finetuned on large-scale, off-domain data to produce in-
+termediate 2D path guidance (detailed in Section 4.1), and second, a low-level policy that produces
+actions conditioned on 2D paths (detailed in Section 4.2).
+The primary advantages of finetuning such a hierarchical VLM that produces intermediate repre-
+sentations as opposed to directly producing actions a with a monolithic model (Kim et al., 2024;
+Zitkovich et al., 2023; Black et al., 2024) are threefold: 1) our hierarchical VLM can leverage off-
+domain datasets lack of precise actions, e.g., simulation and videos; 2) we find empirically that
+hierarchical VLMs producing 2D paths generalize more effectively cross-domain than monolithic
+VLA models; and 3) the hierarchical design provides more flexibility on the sensory modality, and
+allows for asynchronous query of large high-level VLA models and small low-level policy models.
+4.1 HAMSTER’S VLM FOR PRODUCING 2D PATHS TRAINED FROM OFF-DOMAIN DATA
+The high-level VLM of HAMSTER predicts a coarse 2D path pto achieve the task given a monoc-
+ular RGB image img and language instruction z, i.e.,ˆ
+p∼VLM(img,z). The 2D path pdescribes a
+coarse trajectory of the robot end-effector, or human hand in the case of human videos, on the input
+camera image. It also contains information about the gripper state. Formally, the 2D path is defined
+as p= [(xt,yt,gripper opent)]t where xt,yt ∈[0,1] are normalized pixel locations of the end
+effector’s (or hand) position at step t, and gripper opent is a binary value indicating the gripper
+state, i.e., open and close.
+Although, any pretrained text-and-image-input VLM (Lin et al., 2024; Liu et al., 2024d; Achiam
+et al., 2023) can be used to predict such a 2D path by casting an appropriate prompt, we find that pre-
+trained VLMs struggle with predicting such a path in a zero-shot manner (see Table 5). Therefore,
+we finetune pre-trained VLMs on datasets that ground VLMs to robot scenes and path predictions
+collected from easier-to-obtain sources, i.e., internet visual-question-answering data, robot data from
+other modalities, and simulation data. This is in contrast to work such as Gu et al. (2023), where
+pre-trained VLMs are tasked with directly performing spatially relevant path generation.
+We use VILA-1.5-13b (Lin et al., 2024) as our base VLM, a 13-billion-parameter vision language
+model trained on interleaved image-text datasets and video captioning data. Although it is possible
+to curate a dataset on path prediction {(imgi,zi,pi)}i and train the VLM only on the dataset, the
+literature (Brohan et al., 2023a; Yuan et al., 2024b) has shown that co-training the VLM on a variety
+of relevant tasks, all framed as VQA tasks, can help retain the VLM’s generalization capability. To
+this end, we curate a multi-domain dataset to finetune this model for effective 2D path prediction.
+4.1.1 FINETUNING OBJECTIVE AND DATASETS.
+Predicting the 2D path of the end-effector requires understanding what objects to manipulate in a
+given task in terms of their pixel positions, but also reasoning about how a robot should perform the
+5
+Image
+img
+Instr.
+z
+Find all instances of
+cushions
+Pixel Point Prediction Simulated
+Locate object between
+the marked items
+Find spaces above the
+bordered item
+Robot Data
+Screw in the green
+light bulb
+Off Domain Robot Data
+Cover the bowl with
+the towel
+Put the marker inside
+the silver pot
+Paths
+ans
+[(0.49, 0.38, 0.08, 0.06),
+(0.53, 0.42, 0.07,
+0.05),...]
+[(0.57, 0.48), (0.58,
+0.49),(0.56, 0.45),
+(0.55, 0.47), ...]
+[(0.56, 0.69), (0.53,
+0.76),(0.45, 0.72),
+(0.43, 0.67), ...]
+[(0.4, 0.6, close), (0.4,
+0.6, close), (0.8, 0.7,
+open)]
+[(0.2, 0.2, close), (0.3,
+0.2, close), (0.1, 0.2,
+close), (0.1, 0.3, open)]
+[(0.7, 0.5, close), (0.5,
+0.6, close), (0.6, 0.7,
+close), (0.7, 0.6, open)]
+Figure 3: Off Domain Training Data: Doff contains (a) Pixel Point Prediction: 770k object location tasks
+from RoboPoint. (b) Simulated Robot Data: 320k 2D end-effector paths from RLBench environment. (c) Real
+Robot Data: 110k 2D end-effector paths from Bridge and DROID trajectories.
+task. To enable this understanding, we collate a diverse off-domain dataset Doff from a wide range of
+modalities, including real-world data, visual question-answering data, and simulation data. Impor-
+tantly, none of this off-domain data used to train the VLM comes from the deployment environment,
+thereby emphasizing generalizability.
+We assemble a dataset Doff = {(imgi,zi,ansi)}M
+i=1 of image inputs imgi, language prompts zi, and
+answer ansi consisting of three types of off-domain data: (1) pixel point prediction tasks (what); (2)
+simulated robotics tasks (what and how); (3) a real robot dataset consisting of trajectories (what and
+how). We detail each dataset below; see Figure 3 for visualization of each dataset’s prompts and
+corresponding answers.
+Pixel Point Prediction. For pixel point prediction, we use the RoboPoint dataset (Yuan et al.,
+2024b) with 770k pixel point prediction tasks, with most answers represented as a list of
+2D points corresponding to locations on the image. A sample consists of a prompt z like
+Locate object between the marked items, an input image img and answer ans like
+[(0.25,0.11),(0.22,0.19),(0.53,0.23)].
+3 See the left of Figure 3 for an example. This dataset con-
+sists of data automatically generated in simulation and collected from existing real-world datasets;
+its diverse tasks enable the HAMSTER VLM to reason about pixel-object relationships across di-
+verse scenes while retaining its semantic generalization capabilities.
+Simulated Robot Data. We additionally generate a dataset of simulated robotics tasks from RL-
+Bench (James et al., 2020), a simulator of a Franka robot performing tabletop manipulation for a
+wide array of both prehensile and non-prehensile tasks. We use the simulator’s built-in planning al-
+gorithms to automatically generate successful manipulation trajectories. Given a trajectory, we use
+the first frame from the front camera as the image input img. We construct prompt zto instruct the
+VLM to provide a sequence of points denoting the trajectory of the robot gripper to achieve the given
+language instruction (see Figure 2). The ground-truth 2D path p= [(xt,yt,gripper opent)]t is
+given by propriceptive projection using forward kinematics and camera parameters.
+We generate 1000 episodes for each of 81 robot manipulation tasks in RLBench, each episode with
+∼4 language instructions, for a total of around 320k(img,z,ans) tuples, where ans = p. See the
+middle of Figure 3 for an example.
+Real Robot Data. Using real robot data allows us to ensure the VLM can reason about objects
+and robot gripper paths when conditioned on scenes, including real robot arms. We use existing,
+online robot datasets not from the deployment environment to enable this VLM ability. We source
+10k trajectories from the Bridge dataset (Walke et al., 2023; Collaboration et al., 2023) consisting of
+a WidowX arm (different embodiment from test robot) performing manipulation tasks and around
+45k trajectories from DROID (Khazatsky et al., 2024). We covert both datasets to VQA dataset in as
+similar way as the simulated RL-Bench data, where the 2D paths are extracted from proprioception
+and camera parameters (see the right of Figure 3 for an example). Note that we essentially utilize
+the robot data as video data, where the end effector is tracked over time. In principle, this could be
+done with any number of point-tracking methods (Doersch et al., 2023) on raw video as well, with
+no action or proprioceptive labels.
+3Note that this is not a temporally ordered path, but rather a set of unordered points of interest in an image.
+6
+We finetune the HAMSTER VLM on all three types of data by randomly sampling from
+all samples in the entire dataset with equal weight. We also include a 660k-sample VQA
+dataset (Liu et al., 2024c) for co-training to preserve world knowledge. We train with the
+standardized supervised prediction loss to maximize the log-likelihood of the answers ans:
+E(imgi ,zi ,ansi )∼Doff log VLM (ansi |imgi,zi).
+Remark. One issue with simulation and real robot data is that the extracted 2D paths p can be
+extremely long, e.g., exceeding one hundred steps. Since we want the HAMSTER VLM to reason
+at a high level instead of on the same scale as the low-level control policy, we simplify the paths po
+with the Ramer-Douglas-Peucker algorithm (Ramer, 1972; Douglas & Peucker, 1973) that reduces
+curves composed of line segments to similar curves composed of fewer points. We refer readers to
+Appendix G for an ablation study.
+4.2 PATH GUIDED LOW-LEVEL POLICY LEARNING
+The low-level policy of HAMSTER πθ(a|s,o,z,p) is conditioned on proprioceptive and perceptive
+observations, (optional) language instruction and, importantly, 2D path. While a low-level control
+policy can learn to solve the task without 2D path, the paths allow the low-level policy to forgo
+long-horizon and semantic reasoning and focus on local and geometric predictions to produce robot
+actions. As we find empirically (see Figure 4), 2D paths allow for considerably improved visual and
+semantic generalization of low-level policies.
+HAMSTER’s general path-conditioning framework allows lower-level policies to take in proprio-
+ceptive and perceptual (e.g., depth images) observations, that are not input to the high-level VLM.
+We consider low-level policies based on 3D perceptual information, i.e., o = (img,pointcloud),
+available at test time on a robotic platform with standard depth cameras. We study two choices
+of policy architecture, RVT-2 (Goyal et al., 2024) and 3D-DA (Ke et al., 2024) which has shown
+state-of-the-art results on popular robot manipulation benchmark (James et al., 2020).
+Conditioning on Paths. Most policy architectures use the form πθ(a |s,o,z) without 2D path
+inputs. One na¨ ıve option is to concatenate the path with proprioceptive or language inputs. However,
+because 2D paths vary in length, the architecture must handle variable-length inputs. To incorporate
+the 2D pathˆ
+p from the VLM without major modifications, we alternatively overlay the 2D path
+onto the image observation (Gu et al., 2023). Our implementation follows this approach by drawing
+colored trajectories on all images in the trajectory o1
+i,...,oT
+i : points at each (xt,yt) are connected
+with line segments using a color gradient to indicate temporal progression (see Figure 2(b)), and
+circles mark changes in gripper status (e.g., green for closing, blue for opening). If the policy
+architecture allows images with more than three channels, we can also include path drawing as
+separate channels, instead of overlaying it on the RGB channel. We empirically study both drawing
+strategies, overlay and concatenating channels, in section 5.3.
+Policy Training. To train the policy, we collect a relatively small-scale task-specific dataset
+D= {(si,oi,zi,ai)}N
+i=1 on the robot hardware. During training, we use oracle 2D paths con-
+structed by proprioception projection, similar to how the 2D paths are constructed for the VLM
+training data, and construct path-labeled dataset Dpath= {(si,oi,zi,pi,ai)}N
+i=1. We train a pol-
+icy πθ(a |s,o,z,p) with standard supervised imitation learning objectives on Dpath to maximize
+the log-likelihood of the dataset actions: E(si ,oi ,zi ,pi ,ai )∼Dpath log πθ(ai |si,oi,zi,pi). For further
+implementation details, see Appendix B.
+Inference Speed. Monolithic VLAs query the VLM at every action step (Kim et al., 2024; Bro-
+han et al., 2023a), which can be very expensive with large VLMs. For example, OpenVLA’s 7B-
+parameter VLA only runs at 6Hz on an RTX 4090 (Kim et al., 2024). Instead, HAMSTER’s hierar-
+chical design allows us to query the VLM only one or few times during an episode to generate 2D
+pathsˆ
+pthat can be followed by low-level policy for multiple steps. Therefore, HAMSTER can be
+scaled to large VLM backbones without needing end-users to be concerned about inference speed.
+5 EXPERIMENTAL EVALUATION
+We evaluate our approach in both simulation and real-world experiments to the following key ques-
+tions. Do hierarchical VLAs:
+Q1 Generalize behaviors to unseen scenarios with significant visual and semantic variation?
+7
+push down the
+green bottle
+pick up the banana and
+put it in the black bowl
+pick up the green pepper
+and put it in
+the red bowl
+push down the object
+with feather
+press down the left button
+pick up the smiley face
+and put it in the
+red bowl
+pick up the garlic and
+put it in the pan
+Figure 4: Depiction of quantitative real-world policy execution results on a real-world robot, evaluated across
+different axes of generalization and across both prehensile and non-prehensile tasks. Across all generalization
+axes, HAMSTER outperforms monolithic VLAs and the base 3D imitation learning policies.
+Q2 Achieve stronger cross-domain generalization than monolithic VLAs and low-level imita-
+tion learning methods?
+Q3 Facilitate learning of non-prehensile and long-horizon tasks?
+Q4 Exhibit strong demonstration efficiency?
+Q5 Have improved visual + semantic reasoning due to hierarchy and VLM fine-tuning?
+5.1 REAL WORLD EVALUATION ON TABLETOP MANIPULATION
+To answer Q1, our real-world evaluation experiments aim to test the generalization capability of
+hierarchical VLA models across significant semantic and visual variations. In particular, we consider
+a variant of HAMSTER that uses a VLM (VILA-1.5-13b (Lin et al., 2024)) finetuned on the data
+mixture in Section 4.1 as the high-level predictor, with two low-level 3D policy architectures -
+RVT-2 (Goyal et al., 2024) and 3D Diffuser Actor (3D-DA) (Ke et al., 2024) as choices of the low-
+level policy, as described in Section 4.2. The low-level 3D policies are trained with 320 episodes
+collected via teleoperation shown in Fig. 3. Importantly, the high-level VLM has not seen any in-
+domain data and is only finetuned on the off-domain data described in Section 4.1. This suggests
+that any generalization that the VLM shows result from cross-domain transfer.
+Baseline comparisons. To answer Q2, we compare HAMSTER with a state-of-the-art monolithic
+VLA, OpenVLA (Kim et al., 2024) as well as non-VLM 3D policies, RVT-2 (Goyal et al., 2024) and
+3D-DA (Ke et al., 2024). For fair comparison, we finetune OpenVLA on the collected in-domain
+data described above since OpenVLA showed poor zero-shot generalization. The 3D policy (RVT-2,
+3D-DA) baselines are trained with the same teleoperation data used to train the low-level policy in
+HAMSTER but without the intermediate 2D path representation from HAMSTER’s VLM.
+Finetuning OpenVLA with RLBench. To ensure our method’s advantage over OpenVLA (Kim
+et al., 2024) is not solely due to RLBench data, we fine-tuned OpenVLA on the same RLBench
+dataset used for HAMSTER’s VLM—1,000 episodes per task across 81 tasks (using only episodes
+with good front-camera visibility)—until achieving over 90% token accuracy (Kim et al., 2024).
+We then fine-tuned this model on our tasks following the procedure in Appendix C.2. In real-world
+pick-and-place experiments (6 trials over 6 “Basic” tasks as shown in Table 4), RLBench-finetuned
+OpenVLA averaged a success score of 0.54 versus 0.58 for the model without RLBench fine-tuning.
+This suggests that monolithic VLA architectures like OpenVLA gain little benefit from RLBench
+data, likely due to mismatches in action and observation spaces relative to the real-world setup.
+Quantitative Results. Figure 4 summarizes our real-world results. To answer Q3, we evaluate
+across multiple task types, including ‘pick and place,’ and nonprehensile tasks such as ‘press but-
+tons’ and ‘knock down objects.’ We also test generalization across various axes (Q1) – obj and goal:
+unseen object-goal combinations; visual: visual changes in table texture, lighting, distractor objects;
+language: unseen language instructions (e.g., candy →sweet object); spatial: unseen spatial object
+relationships in the instruction; novel object: unseen objects; and lastly, multiple: a combination of
+multiple variations. In total, we evaluate each model on 74 tasks for 222 total evaluations. Detailed
+results and the success score metric are provided in Appendix Table 4.
+8
+Figure 5: Examples of various robot tasks and environments that HAMSTER can handle. See more details in
+our teaser video at https://hamster-robot.github.io/.
+HAMSTER Low-Level Policy
+pick up the green
+pepper and put it in the
+red bowl
+pick up the sweet object
+and put it into
+the red bowl
+pick up the garlic and
+put it in the pan
+Figure 6: Example real-world HAMSTER rollouts demonstrate its strong performance in novel scenes
+achieved by leveraging VLMs’ generalization capabilities and the robust execution of low-level 3D policies.
+Qualitative Eval on Various Tasks. In addition to the quantitative evaluation conducted for com-
+parison with OpenVLA, we also present qualitative results that demonstrate how HAMSTER’s hi-
+erarchical structure enables low-level policy models to generalize to more complex tasks. Figure 5
+illustrates the diverse tasks HAMSTER can handle, including unfolding a towel, opening and closing
+drawers, pressing buttons, wiping surfaces, and cleaning tables. These tasks present challenges such
+as varying lighting conditions, cluttered backgrounds, and semantic understanding requiring exter-
+nal world knowledge. Additionally, HAMSTER demonstrates the ability to perform long-horizon
+tasks—none of which are part of the in-domain training set used to train the policy model.
+Overall, we find that HAMSTER significantly outperforms monolithic VLA models and (non-VLM)
+3D policies by over 2x and 3x, respectively, on average. This is significant because this improved
+performance is in the face of considerable visual and semantic changes in the test setting, show-
+ing the ability of HAMSTER to generalize better than monolithic VLA models or non-VLM base
+models. We further group results by task type in Table 6, where we see HAMSTER outperforms
+OpenVLA across all task types (pick and place, press button, and knock down). See Appendix C for
+evaluation conditions, a task list, and other experiment details, and Appendix E for failure modes.
+9
+Method Success
+Method Original Camera Novel Camera
+Success Complete Success Complete
+3D-DA 0.18 ±0.10
+HAMSTER+3D-DA (50%) 0.36 ±0.04
+HAMSTER+3D-DA 0.43 ±0.05
+OpenVLA 0.60 0.30 0.23 0.00
+HAMSTER+RVT2 0.83 0.70 0.73 0.40
+HAMSTER+RVT2 (Concat) 1.00 1.00 0.98 0.90
+Table 1: Results on Colosseum demon-
+strate that HAMSTER is data efficient,
+achieving 2X the success score of 3D-DA
+with just 50% of the data.
+Table 2: Real world results demonstrate HAMSTER general-
+izes to better to novel camera views (see Fig.Figure 7). We ran
+10 trails and report averaged success score (success) described
+in Table 4 and number of successful executions (complete).
+Avg. no var bac tex cam pos distractor lig col man obj col man obj siz
+3D-DA[ Ke et al.] 0.35 ±0.04 0.43 ±0.06 0.34 ±0.07 0.35 ±0.11 0.39 ±0.11 0.44 ±0.13 0.41 ±0.04 0.41 ±0.11
+HAMSTER (w 3D-DA) 0.46 ±0.04 0.57 ±0.03 0.48 ±0.08 0.39 ±0.06 0.41 ±0.05 0.59 ±0.04 0.57 ±0.08 0.51 ±0.10
+man obj tex rec obj col rec obj siz rec obj tex rlb and col rlb var tab col tab tex
+3D-DA[ Ke et al.] 0.27 ±0.04 0.34 ±0.10 0.36 ±0.05 0.36 ±0.12 0.07 ±0.03 0.45 ±0.12 0.42 ±0.06 0.23 ±0.04
+HAMSTER (w 3D-DA) 0.48 ±0.06 0.48 ±0.05 0.40 ±0.05 0.56 ±0.09 0.11 ±0.10 0.58 ±0.04 0.56 ±0.03 0.35 ±0.07
+Table 3: Simulation evaluation of HAMSTER across different visual variations. We test vanilla 3D Diffuser
+Actor and HAMSTER across variations in Colosseum (Pumacay et al., 2024) and find that HAMSTER gener-
+alizes more effectively than 3D Diffuser Actor. Avg. indicates mean across variations, including no variation.
+5.2 SIMULATION EVALUATION
+Overall Results. For further investigation into Q1, Q2, and Q3, we conducted a controlled sim-
+ulation evaluation using Colosseum (Pumacay et al., 2024), which provides significant visual and
+semantic variations across pick-place and non-prehensile tasks. Pairing our high-level VLM with
+the state-of-the-art 3D-DA (Ke et al., 2024) policy on RLBench, we compared HAMSTER against
+a vanilla 3D-DA implementation without path guidance. As shown in Table 3 over 5 seeds, HAM-
+STER outperforms the vanilla approach by an average of 31%. This improvement stems from train-
+ing with path-drawn images, which encourages the policy to focus on the path rather than extraneous
+visual features, thereby enhancing robustness to visual variations. We refer readers to Pumacay et al.
+(2024) for details on the variations and Appendix F for further simulation experiment details.
+HAMSTER with Fewer Demonstrations. We also test HAMSTER’s ability to work well with
+limited demonstrations to answer Q4. We test on a subset of 5 Colosseum tasks, namely,
+SLIDE BLOCK TO TARGET, PLACE WINE AT RACK LOCATION, INSERT ONTO SQUARE PEG,
+STACK CUPS, SETUP CHESS. Results in Table 1 demonstrate that HAMSTER+3D-DA with just
+50% of the data still achieves 2x the success rate of standard 3D-DA, demonstrating that HAM-
+STER is demonstration-efficient for the downstream imitation learning tasks.
+5.3 VLM GENERALIZATION STUDIES
+Finally, we perform additional experiments to answer Q5 on whether HAMSTER’s hierarchy en-
+ables superior visual and semantic reasoning.
+Camera View Invariance. We test HAMSTER+RVT2 against
+OpenVLA from a new camera angle (Figure 7) across 10 pick-
+and-place trials using 6 training objects and 3 training containers
+to check HAMSTER’s visual spatial reasoning. The results in Ta-
+ble 2 show that HAMSTER significantly outperforms OpenVLA
+and remains robust to new camera angles, benefiting from its VLM
+trained on diverse off-domain tasks across various viewpoints. Ad-
+ditionally, we compare HAMSTER+RVT2 (Concat), where instead
+of overlaying the path on the input RGB image, we modify RVT-
+2 to accept a 6-channel input by concatenating the original RGB
+image with a separate RGB image containing only the drawn path.
+We can easily apply this due to HAMSTER’s hierarchical nature.
+Figure 7: Camera positions for
+Concatenated paths actually achieve the best performance, demon-
+view invariance: old (right) and
+strating the effectiveness of this path representation, though it is less
+new (left).
+general and not compatible with all imitation learning policy archi-
+tectures (such as 3D-DA as it uses a pre-trained image encoder expecting 3 input channels). One
+possible explanation is that RVT2’s virtual reprojection can fragment the 2D path when it is directly
+10
+Move the left block to
+Move the toy car
+Place the cup on
+Screw the light bulb in
+Jensen Huang
+to the bowl with x
+the cup holder
+the lamp
+Push the button with color of cucumber,
+then press the button with color of fire
+(a) (b) (c)
+Figure 8: HAMSTER’s VLM demonstrates strong generalization to unseen scenarios. From left to right:
+(a) leveraging world knowledge for user-specified tasks, (b) handling out-of-domain inputs like human-drawn
+sketches, and (c) transferring from diverse simulations to visually distinct real-world tasks. Blue-to-red lines
+indicate motion, with blue and red circles marking grasp and release points, respectively.
+drawn on the image, making it harder for RVT2 to decode. By providing a dedicated path channel
+(via concatenation), path guidance is preserved more effectively.
+VLM Generalization. We further demonstrate the benefit of HAMSTER’s hierarchy by demon-
+strating that the VLM generalizes well to visually unique and semantically challenging tasks due to
+its off-domain fine-tuning. We visualize example HAMSTER path drawings in Figure 8, demon-
+strating HAMSTER’s VLM itself effectively reasons semantically and visually for unseen tasks. We
+further investigate VLM performance in Appendix D.1, where we find that (1) HAMSTER outper-
+forms zero-shot path generation from closed-source VLMs (Gu et al., 2023; Liang et al., 2023) and
+(2) that inclusion of simulation data improves HAMSTER’s real-world performance. Both results
+point to the benefit of explicit hierarchy: off-domain VLM fine-tuning that improves its performance.
+See Appendix D.1 for further details.
+6 CONCLUSION AND LIMITATIONS
+In summary, HAMSTER studies the potential of hierarchical VLA models, achieving robust gener-
+alization in robotic manipulation. It consists of a finetuned VLM that accurately predicts 2D paths
+for robotic manipulation and a low-level policy that learns to generate actions using the 2D paths.
+This two-step architecture enables visual generalization and semantic reasoning across considerable
+domain shifts, while enabling data-efficient specialist policies, like ones conditioned on 3D inputs,
+to perform low-level action execution.
+This work represents an initial step towards developing versatile, hierarchical VLA methods, with
+numerous opportunities for future improvement and expansion. The proposed work only generates
+points in 2D space, without making native 3D predictions. This prevents the VLM from having true
+spatial 3D understanding. Moreover, the interface of just using 2D paths is a bandwidth limited one,
+which cannot communicate nuances such as force or rotation. In the future, investigating learnable
+intermediate interfaces is a promising direction. Moreover, training these VLMs directly from large-
+scale human video datasets would also be promising.
+ACKNOWLEDGEMENTS
+We thank Wentao Yuan for generously providing the Robopoint dataset. We also acknowledge
+Entong Su and Yunchu Zhang for their assistance in setting up the robot environment. We are
+grateful for the support from the Army Research Lab through sponsored research, as well as the
+Amazon Science Hub for Yi and Marius. We also thank Animesh Garg for many helpful discussions.
+Finally, we extend our gratitude to Yao Lu, Hongxu Yin, Ligeng Zhu, Borys Tymchenko, and Zhijian
+Liu from NVIDIA’s VILA group for their valuable support throughout this work.
+REFERENCES
+OpenAI Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni
+Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, Red Avila, Igor
+Babuschkin, Suchir Balaji, Valerie Balcom, Paul Baltescu, Haiming Bao, Mo Bavarian, Jeff Bel-
+gum, Irwan Bello, Jake Berdine, Gabriel Bernadett-Shapiro, Christopher Berner, Lenny Bog-
+donoff, Oleg Boiko, Madelaine Boyd, Anna-Luisa Brakman, Greg Brockman, Tim Brooks, Miles
+Brundage, Kevin Button, Trevor Cai, Rosie Campbell, Andrew Cann, Brittany Carey, Chelsea
+11
+Carlson, Rory Carmichael, Brooke Chan, Che Chang, Fotis Chantzis, Derek Chen, Sully Chen,
+Ruby Chen, Jason Chen, Mark Chen, Benjamin Chess, Chester Cho, Casey Chu, Hyung Won
+Chung, Dave Cummings, Jeremiah Currier, Yunxing Dai, Cory Decareaux, Thomas Degry, Noah
+Deutsch, Damien Deville, Arka Dhar, David Dohan, Steve Dowling, Sheila Dunning, Adrien
+Ecoffet, Atty Eleti, Tyna Eloundou, David Farhi, Liam Fedus, Niko Felix, Sim’on Posada Fish-
+man, Juston Forte, Isabella Fulford, Leo Gao, Elie Georges, Christian Gibson, Vik Goel, Tarun
+Gogineni, Gabriel Goh, Raphael Gontijo-Lopes, Jonathan Gordon, Morgan Grafstein, Scott Gray,
+Ryan Greene, Joshua Gross, Shixiang Shane Gu, Yufei Guo, Chris Hallacy, Jesse Han, Jeff Har-
+ris, Yuchen He, Mike Heaton, Johannes Heidecke, Chris Hesse, Alan Hickey, Wade Hickey, Peter
+Hoeschele, Brandon Houghton, Kenny Hsu, Shengli Hu, Xin Hu, Joost Huizinga, Shantanu Jain,
+Shawn Jain, Joanne Jang, Angela Jiang, Roger Jiang, Haozhun Jin, Denny Jin, Shino Jomoto,
+Billie Jonn, Heewoo Jun, Tomer Kaftan, Lukasz Kaiser, Ali Kamali, Ingmar Kanitscheider, Ni-
+tish Shirish Keskar, Tabarak Khan, Logan Kilpatrick, Jong Wook Kim, Christina Kim, Yongjik
+Kim, Hendrik Kirchner, Jamie Ryan Kiros, Matthew Knight, Daniel Kokotajlo, Lukasz Kon-
+draciuk, Andrew Kondrich, Aris Konstantinidis, Kyle Kosic, Gretchen Krueger, Vishal Kuo,
+Michael Lampe, Ikai Lan, Teddy Lee, Jan Leike, Jade Leung, Daniel Levy, Chak Ming Li,
+Rachel Lim, Molly Lin, Stephanie Lin, Mateusz Litwin, Theresa Lopez, Ryan Lowe, Patricia
+Lue, Anna Adeola Makanju, Kim Malfacini, Sam Manning, Todor Markov, Yaniv Markovski,
+Bianca Martin, Katie Mayer, Andrew Mayne, Bob McGrew, Scott Mayer McKinney, Christine
+McLeavey, Paul McMillan, Jake McNeil, David Medina, Aalok Mehta, Jacob Menick, Luke
+Metz, Andrey Mishchenko, Pamela Mishkin, Vinnie Monaco, Evan Morikawa, Daniel P. Mossing,
+Tong Mu, Mira Murati, Oleg Murk, David M’ely, Ashvin Nair, Reiichiro Nakano, Rajeev Nayak,
+Arvind Neelakantan, Richard Ngo, Hyeonwoo Noh, Ouyang Long, Cullen O’Keefe, Jakub W.
+Pachocki, Alex Paino, Joe Palermo, Ashley Pantuliano, Giambattista Parascandolo, Joel Parish,
+Emy Parparita, Alexandre Passos, Mikhail Pavlov, Andrew Peng, Adam Perelman, Filipe de Avila
+Belbute Peres, Michael Petrov, Henrique Pond´ e de Oliveira Pinto, Michael Pokorny, Michelle
+Pokrass, Vitchyr H. Pong, Tolly Powell, Alethea Power, Boris Power, Elizabeth Proehl, Raul
+Puri, Alec Radford, Jack Rae, Aditya Ramesh, Cameron Raymond, Francis Real, Kendra Rim-
+bach, Carl Ross, Bob Rotsted, Henri Roussez, Nick Ryder, Mario D. Saltarelli, Ted Sanders,
+Shibani Santurkar, Girish Sastry, Heather Schmidt, David Schnurr, John Schulman, Daniel Sel-
+sam, Kyla Sheppard, Toki Sherbakov, Jessica Shieh, Sarah Shoker, Pranav Shyam, Szymon Sidor,
+Eric Sigler, Maddie Simens, Jordan Sitkin, Katarina Slama, Ian Sohl, Benjamin D. Sokolowsky,
+Yang Song, Natalie Staudacher, Felipe Petroski Such, Natalie Summers, Ilya Sutskever, Jie Tang,
+Nikolas A. Tezak, Madeleine Thompson, Phil Tillet, Amin Tootoonchian, Elizabeth Tseng, Pre-
+ston Tuggle, Nick Turley, Jerry Tworek, Juan Felipe Cer’on Uribe, Andrea Vallone, Arun Vi-
+jayvergiya, Chelsea Voss, Carroll L. Wainwright, Justin Jay Wang, Alvin Wang, Ben Wang,
+Jonathan Ward, Jason Wei, CJ Weinmann, Akila Welihinda, Peter Welinder, Jiayi Weng, Lilian
+Weng, Matt Wiethoff, Dave Willner, Clemens Winter, Samuel Wolrich, Hannah Wong, Lauren
+Workman, Sherwin Wu, Jeff Wu, Michael Wu, Kai Xiao, Tao Xu, Sarah Yoo, Kevin Yu, Qiming
+Yuan, Wojciech Zaremba, Rowan Zellers, Chong Zhang, Marvin Zhang, Shengjia Zhao, Tian-
+hao Zheng, Juntang Zhuang, William Zhuk, and Barret Zoph. Gpt-4 technical report. In arxiv
+preprint, 2023. URL https://arxiv.org/pdf/2303.08774.
+Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang
+Zhou, and Jingren Zhou. Qwen-vl: A frontier large vision-language model with versatile abilities.
+arXiv preprint arXiv:2308.12966, 2023.
+Homanga Bharadhwaj, Roozbeh Mottaghi, Abhinav Gupta, and Shubham Tulsiani. Track2act: Pre-
+dicting point tracks from internet videos enables diverse zero-shot robot manipulation. arXiv
+preprint arXiv:2405.01527, 2024.
+Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo
+Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. pi 0: A vision-language-action flow
+model for general robot control. arXiv preprint arXiv:2410.24164, 2024.
+Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Joseph Dabis, Chelsea Finn,
+Keerthana Gopalakrishnan, Karol Hausman, Alex Herzog, Jasmine Hsu, et al. Rt-1: Robotics
+transformer for real-world control at scale. arXiv preprint arXiv:2212.06817, 2022.
+Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Xi Chen, Krzysztof Choro-
+manski, Tianli Ding, Danny Driess, Avinava Dubey, Chelsea Finn, Pete Florence, Chuyuan Fu,
+12
+Montse Gonzalez Arenas, Keerthana Gopalakrishnan, Kehang Han, Karol Hausman, Alex Her-
+zog, Jasmine Hsu, Brian Ichter, Alex Irpan, Nikhil Joshi, Ryan Julian, Dmitry Kalashnikov,
+Yuheng Kuang, Isabel Leal, Lisa Lee, Tsang-Wei Edward Lee, Sergey Levine, Yao Lu, Hen-
+ryk Michalewski, Igor Mordatch, Karl Pertsch, Kanishka Rao, Krista Reymann, Michael Ryoo,
+Grecia Salazar, Pannag Sanketi, Pierre Sermanet, Jaspiar Singh, Anikait Singh, Radu Soricut,
+Huong Tran, Vincent Vanhoucke, Quan Vuong, Ayzaan Wahid, Stefan Welker, Paul Wohlhart,
+Jialin Wu, Fei Xia, Ted Xiao, Peng Xu, Sichun Xu, Tianhe Yu, and Brianna Zitkovich. Rt-
+2: Vision-language-action models transfer web knowledge to robotic control. In arXiv preprint
+arXiv:2307.15818, 2023a.
+Anthony Brohan, Yevgen Chebotar, Chelsea Finn, Karol Hausman, Alexander Herzog, Daniel Ho,
+Julian Ibarz, Alex Irpan, Eric Jang, Ryan Julian, et al. Do as i can, not as i say: Grounding
+language in robotic affordances. In Conference on robot learning, pp. 287–318. PMLR, 2023b.
+Minwoo Byeon, Beomhee Park, Haecheon Kim, Sungjun Lee, Woonhyuk Baek, and Saehoon
+Kim. Coyo-700m: Image-text pair dataset. https://github.com/kakaobrain/
+coyo-dataset, 2022.
+Cheng Chi, Siyuan Feng, Yilun Du, Zhenjia Xu, Eric Cousineau, Benjamin Burchfiel, and Shuran
+Song. Diffusion policy: Visuomotor policy learning via action diffusion. In Kostas E. Bekris,
+Kris Hauser, Sylvia L. Herbert, and Jingjin Yu (eds.), Robotics: Science and Systems XIX, Daegu,
+Republic of Korea, July 10-14, 2023, 2023. doi: 10.15607/RSS.2023.XIX.026. URL https:
+//doi.org/10.15607/RSS.2023.XIX.026.
+Open X-Embodiment Collaboration, Abby O’Neill, Abdul Rehman, Abhinav Gupta, Abhiram Mad-
+dukuri, Abhishek Gupta, Abhishek Padalkar, Abraham Lee, Acorn Pooley, Agrim Gupta, Ajay
+Mandlekar, Ajinkya Jain, Albert Tung, Alex Bewley, Alex Herzog, Alex Irpan, Alexander Khaz-
+atsky, Anant Rai, Anchit Gupta, Andrew Wang, Andrey Kolobov, Anikait Singh, Animesh Garg,
+Aniruddha Kembhavi, Annie Xie, Anthony Brohan, Antonin Raffin, Archit Sharma, Arefeh
+Yavary, Arhan Jain, Ashwin Balakrishna, Ayzaan Wahid, Ben Burgess-Limerick, Beomjoon Kim,
+Bernhard Sch¨ olkopf, Blake Wulfe, Brian Ichter, Cewu Lu, Charles Xu, Charlotte Le, Chelsea
+Finn, Chen Wang, Chenfeng Xu, Cheng Chi, Chenguang Huang, Christine Chan, Christopher
+Agia, Chuer Pan, Chuyuan Fu, Coline Devin, Danfei Xu, Daniel Morton, Danny Driess, Daphne
+Chen, Deepak Pathak, Dhruv Shah, Dieter B¨ uchler, Dinesh Jayaraman, Dmitry Kalashnikov,
+Dorsa Sadigh, Edward Johns, Ethan Foster, Fangchen Liu, Federico Ceola, Fei Xia, Feiyu Zhao,
+Felipe Vieira Frujeri, Freek Stulp, Gaoyue Zhou, Gaurav S. Sukhatme, Gautam Salhotra, Ge Yan,
+Gilbert Feng, Giulio Schiavi, Glen Berseth, Gregory Kahn, Guangwen Yang, Guanzhi Wang, Hao
+Su, Hao-Shu Fang, Haochen Shi, Henghui Bao, Heni Ben Amor, Henrik I Christensen, Hiroki
+Furuta, Homanga Bharadhwaj, Homer Walke, Hongjie Fang, Huy Ha, Igor Mordatch, Ilija Ra-
+dosavovic, Isabel Leal, Jacky Liang, Jad Abou-Chakra, Jaehyung Kim, Jaimyn Drake, Jan Peters,
+Jan Schneider, Jasmine Hsu, Jay Vakil, Jeannette Bohg, Jeffrey Bingham, Jeffrey Wu, Jensen
+Gao, Jiaheng Hu, Jiajun Wu, Jialin Wu, Jiankai Sun, Jianlan Luo, Jiayuan Gu, Jie Tan, Jihoon
+Oh, Jimmy Wu, Jingpei Lu, Jingyun Yang, Jitendra Malik, Jo˜ ao Silv´ erio, Joey Hejna, Jonathan
+Booher, Jonathan Tompson, Jonathan Yang, Jordi Salvador, Joseph J. Lim, Junhyek Han, Kaiyuan
+Wang, Kanishka Rao, Karl Pertsch, Karol Hausman, Keegan Go, Keerthana Gopalakrishnan, Ken
+Goldberg, Kendra Byrne, Kenneth Oslund, Kento Kawaharazuka, Kevin Black, Kevin Lin, Kevin
+Zhang, Kiana Ehsani, Kiran Lekkala, Kirsty Ellis, Krishan Rana, Krishnan Srinivasan, Kuan
+Fang, Kunal Pratap Singh, Kuo-Hao Zeng, Kyle Hatch, Kyle Hsu, Laurent Itti, Lawrence Yun-
+liang Chen, Lerrel Pinto, Li Fei-Fei, Liam Tan, Linxi ”Jim” Fan, Lionel Ott, Lisa Lee, Luca
+Weihs, Magnum Chen, Marion Lepert, Marius Memmel, Masayoshi Tomizuka, Masha Itkina,
+Mateo Guaman Castro, Max Spero, Maximilian Du, Michael Ahn, Michael C. Yip, Mingtong
+Zhang, Mingyu Ding, Minho Heo, Mohan Kumar Srirama, Mohit Sharma, Moo Jin Kim, Naoaki
+Kanazawa, Nicklas Hansen, Nicolas Heess, Nikhil J Joshi, Niko Suenderhauf, Ning Liu, Nor-
+man Di Palo, Nur Muhammad Mahi Shafiullah, Oier Mees, Oliver Kroemer, Osbert Bastani,
+Pannag R Sanketi, Patrick ”Tree” Miller, Patrick Yin, Paul Wohlhart, Peng Xu, Peter David
+Fagan, Peter Mitrano, Pierre Sermanet, Pieter Abbeel, Priya Sundaresan, Qiuyu Chen, Quan
+Vuong, Rafael Rafailov, Ran Tian, Ria Doshi, Roberto Mart’in-Mart’in, Rohan Baijal, Rosario
+Scalise, Rose Hendrix, Roy Lin, Runjia Qian, Ruohan Zhang, Russell Mendonca, Rutav Shah,
+Ryan Hoque, Ryan Julian, Samuel Bustamante, Sean Kirmani, Sergey Levine, Shan Lin, Sherry
+Moore, Shikhar Bahl, Shivin Dass, Shubham Sonawani, Shubham Tulsiani, Shuran Song, Sichun
+13
+Xu, Siddhant Haldar, Siddharth Karamcheti, Simeon Adebola, Simon Guist, Soroush Nasiriany,
+Stefan Schaal, Stefan Welker, Stephen Tian, Subramanian Ramamoorthy, Sudeep Dasari, Suneel
+Belkhale, Sungjae Park, Suraj Nair, Suvir Mirchandani, Takayuki Osa, Tanmay Gupta, Tatsuya
+Harada, Tatsuya Matsushima, Ted Xiao, Thomas Kollar, Tianhe Yu, Tianli Ding, Todor Davchev,
+Tony Z. Zhao, Travis Armstrong, Trevor Darrell, Trinity Chung, Vidhi Jain, Vikash Kumar, Vin-
+cent Vanhoucke, Wei Zhan, Wenxuan Zhou, Wolfram Burgard, Xi Chen, Xiangyu Chen, Xiaolong
+Wang, Xinghao Zhu, Xinyang Geng, Xiyuan Liu, Xu Liangwei, Xuanlin Li, Yansong Pang, Yao
+Lu, Yecheng Jason Ma, Yejin Kim, Yevgen Chebotar, Yifan Zhou, Yifeng Zhu, Yilin Wu, Ying
+Xu, Yixuan Wang, Yonatan Bisk, Yongqiang Dou, Yoonyoung Cho, Youngwoon Lee, Yuchen
+Cui, Yue Cao, Yueh-Hua Wu, Yujin Tang, Yuke Zhu, Yunchu Zhang, Yunfan Jiang, Yunshuang
+Li, Yunzhu Li, Yusuke Iwasawa, Yutaka Matsuo, Zehan Ma, Zhuo Xu, Zichen Jeff Cui, Zichen
+Zhang, Zipeng Fu, and Zipeng Lin. Open X-Embodiment: Robotic learning datasets and RT-X
+models. https://arxiv.org/abs/2310.08864, 2023.
+Carl Doersch, Yi Yang, Mel Vecerik, Dilara Gokay, Ankush Gupta, Yusuf Aytar, Joao Carreira,
+and Andrew Zisserman. Tapir: Tracking any point with per-frame initialization and temporal
+refinement. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pp.
+10061–10072, 2023.
+David H Douglas and Thomas K Peucker. Algorithms for the reduction of the number of
+points required to represent a digitized line or its caricature. Cartographica, 10(2):112–
+122, 1973. doi: 10.3138/FM57-6770-U75U-7727. URL https://doi.org/10.3138/
+FM57-6770-U75U-7727.
+Danny Driess, Fei Xia, Mehdi SM Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian Ichter,
+Ayzaan Wahid, Jonathan Tompson, Quan Vuong, Tianhe Yu, et al. Palm-e: An embodied mul-
+timodal language model. In International Conference on Machine Learning, pp. 8469–8488.
+PMLR, 2023.
+Jiafei Duan, Wentao Yuan, Wilbert Pumacay, Yi Ru Wang, Kiana Ehsani, Dieter Fox, and Ran-
+jay Krishna. Manipulate-anything: Automating real-world robots using vision-language models.
+arXiv preprint arXiv:2406.18915, 2024.
+Adam Fishman, Adithyavairavan Murali, Clemens Eppner, Bryan Peele, Byron Boots, and Dieter
+Fox. Motion policy networks. In Karen Liu, Dana Kulic, and Jeffrey Ichnowski (eds.), Conference
+on Robot Learning, CoRL 2022, 14-18 December 2022, Auckland, New Zealand, volume 205
+of Proceedings of Machine Learning Research, pp. 967–977. PMLR, 2022. URL https://
+proceedings.mlr.press/v205/fishman23a.html.
+Ankit Goyal, Jie Xu, Yijie Guo, Valts Blukis, Yu-Wei Chao, and Dieter Fox. Rvt: Robotic view
+transformer for 3d object manipulation. In Conference on Robot Learning, pp. 694–710. PMLR,
+2023.
+Ankit Goyal, Valts Blukis, Jie Xu, Yijie Guo, Yu-Wei Chao, and Dieter Fox. Rvt2: Learning precise
+manipulation from few demonstrations. RSS, 2024.
+Jiayuan Gu, Sean Kirmani, Paul Wohlhart, Yao Lu, Montserrat Gonzalez Arenas, Kanishka Rao,
+Wenhao Yu, Chuyuan Fu, Keerthana Gopalakrishnan, Zhuo Xu, Priya Sundaresan, Peng Xu,
+Hao Su, Karol Hausman, Chelsea Finn, Quan Vuong, and Ted Xiao. Rt-trajectory: Robotic task
+generalization via hindsight trajectory sketches, 2023.
+Ankur Handa, Arthur Allshire, Viktor Makoviychuk, Aleksei Petrenko, Ritvik Singh, Jingzhou Liu,
+Denys Makoviichuk, Karl Van Wyk, Alexander Zhurkevich, Balakumar Sundaralingam, et al.
+Dextreme: Transfer of agile in-hand manipulation from simulation to reality. In 2023 IEEE
+International Conference on Robotics and Automation (ICRA), pp. 5977–5984. IEEE, 2023.
+Wenlong Huang, Chen Wang, Ruohan Zhang, Yunzhu Li, Jiajun Wu, and Li Fei-Fei. Voxposer:
+Composable 3d value maps for robotic manipulation with language models. In Conference on
+Robot Learning, pp. 540–562. PMLR, 2023a.
+Wenlong Huang, Fei Xia, Ted Xiao, Harris Chan, Jacky Liang, Pete Florence, Andy Zeng, Jonathan
+Tompson, Igor Mordatch, Yevgen Chebotar, et al. Inner monologue: Embodied reasoning through
+14
+planning with language models. 2023b.
+In Conference on Robot Learning, pp. 1769–1782. PMLR,
+Stephen James, Zicong Ma, David Rovick Arrojo, and Andrew J Davison. Rlbench: The robot
+learning benchmark & learning environment. IEEE Robotics and Automation Letters, 5(2):3019–
+3026, 2020.
+Eric Jang, Alex Irpan, Mohi Khansari, Daniel Kappler, Frederik Ebert, Corey Lynch, Sergey Levine,
+and Chelsea Finn. Bc-z: Zero-shot task generalization with robotic imitation learning. In Confer-
+ence on Robot Learning, pp. 991–1002. PMLR, 2022.
+Yunfan Jiang, Agrim Gupta, Zichen Zhang, Guanzhi Wang, Yongqiang Dou, Yanjun Chen, Li Fei-
+Fei, Anima Anandkumar, Yuke Zhu, and Linxi Fan. Vima: General robot manipulation with
+multimodal prompts. In International Conference on Machine Learning, 2023.
+Nikita Karaev, Ignacio Rocco, Benjamin Graham, Natalia Neverova, Andrea Vedaldi, and Christian
+Rupprecht. Cotracker: It is better to track together. In European Conference on Computer Vision,
+pp. 18–35. Springer, 2025.
+Tsung-Wei Ke, Nikolaos Gkanatsios, and Katerina Fragkiadaki. 3d diffuser actor: Policy diffusion
+with 3d scene representations. In First Workshop on Vision-Language Models for Navigation and
+Manipulation at ICRA 2024, 2024.
+Alexander Khazatsky, Karl Pertsch, Suraj Nair, Ashwin Balakrishna, Sudeep Dasari, Siddharth
+Karamcheti, Soroush Nasiriany, Mohan Kumar Srirama, Lawrence Yunliang Chen, Kirsty Ellis,
+Peter David Fagan, Joey Hejna, Masha Itkina, Marion Lepert, Yecheng Jason Ma, Patrick Tree
+Miller, Jimmy Wu, Suneel Belkhale, Shivin Dass, Huy Ha, Arhan Jain, Abraham Lee, Young-
+woon Lee, Marius Memmel, Sungjae Park, Ilija Radosavovic, Kaiyuan Wang, Albert Zhan, Kevin
+Black, Cheng Chi, Kyle Beltran Hatch, Shan Lin, Jingpei Lu, Jean Mercat, Abdul Rehman, Pan-
+nag R Sanketi, Archit Sharma, Cody Simpson, Quan Vuong, Homer Rich Walke, Blake Wulfe,
+Ted Xiao, Jonathan Heewon Yang, Arefeh Yavary, Tony Z. Zhao, Christopher Agia, Rohan Bai-
+jal, Mateo Guaman Castro, Daphne Chen, Qiuyu Chen, Trinity Chung, Jaimyn Drake, Ethan Paul
+Foster, Jensen Gao, David Antonio Herrera, Minho Heo, Kyle Hsu, Jiaheng Hu, Donovon Jack-
+son, Charlotte Le, Yunshuang Li, Kevin Lin, Roy Lin, Zehan Ma, Abhiram Maddukuri, Suvir Mir-
+chandani, Daniel Morton, Tony Nguyen, Abigail O’Neill, Rosario Scalise, Derick Seale, Victor
+Son, Stephen Tian, Emi Tran, Andrew E. Wang, Yilin Wu, Annie Xie, Jingyun Yang, Patrick Yin,
+Yunchu Zhang, Osbert Bastani, Glen Berseth, Jeannette Bohg, Ken Goldberg, Abhinav Gupta,
+Abhishek Gupta, Dinesh Jayaraman, Joseph J Lim, Jitendra Malik, Roberto Mart´ ın-Mart´ ın, Sub-
+ramanian Ramamoorthy, Dorsa Sadigh, Shuran Song, Jiajun Wu, Michael C. Yip, Yuke Zhu,
+Thomas Kollar, Sergey Levine, and Chelsea Finn. Droid: A large-scale in-the-wild robot manip-
+ulation dataset. 2024.
+Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair,
+Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, et al. Openvla: An open-source
+vision-language-action model. arXiv preprint arXiv:2406.09246, 2024.
+Yuxuan Kuang, Junjie Ye, Haoran Geng, Jiageng Mao, Congyue Deng, Leonidas Guibas, He Wang,
+and Yue Wang. Ram: Retrieval-based affordance transfer for generalizable zero-shot robotic
+manipulation. arXiv preprint arXiv:2407.04689, 2024.
+Minae Kwon, Sang Michael Xie, Kalesha Bullard, and Dorsa Sadigh. Reward design with language
+models. In The Eleventh International Conference on Learning Representations, 2023.
+Joonho Lee, Jemin Hwangbo, Lorenz Wellhausen, Vladlen Koltun, and Marco Hutter. Learning
+quadrupedal locomotion over challenging terrain. Science robotics, 5(47):eabc5986, 2020.
+Xuanlin Li, Kyle Hsu, Jiayuan Gu, Karl Pertsch, Oier Mees, Homer Rich Walke, Chuyuan Fu,
+Ishikaa Lunawat, Isabel Sieh, Sean Kirmani, et al. Evaluating real-world robot manipulation
+policies in simulation. arXiv preprint arXiv:2405.05941, 2024.
+Jacky Liang, Wenlong Huang, Fei Xia, Peng Xu, Karol Hausman, Brian Ichter, Pete Florence, and
+Andy Zeng. Code as policies: Language model programs for embodied control. In 2023 IEEE
+International Conference on Robotics and Automation (ICRA), pp. 9493–9500. IEEE, 2023.
+15
+Ji Lin, Hongxu Yin, Wei Ping, Pavlo Molchanov, Mohammad Shoeybi, and Song Han. Vila: On pre-
+training for visual language models. In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), pp. 26689–26699, June 2024.
+Kevin Lin, Christopher Agia, Toki Migimatsu, Marco Pavone, and Jeannette Bohg. Text2motion:
+From natural language instructions to feasible plans. Autonomous Robots, 47(8):1345–1365,
+2023.
+Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao,
+Chengqi Deng, Chenyu Zhang, Chong Ruan, et al. Deepseek-v3 technical report. arXiv preprint
+arXiv:2412.19437, 2024a.
+Fangchen Liu, Kuan Fang, Pieter Abbeel, and Sergey Levine. Moka: Open-vocabulary robotic
+manipulation through mark-based visual prompting. arXiv preprint arXiv:2403.03174, 2024b.
+Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction
+tuning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-
+tion, pp. 26296–26306, 2024c.
+Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances
+in neural information processing systems, 36, 2024d.
+Pan Lu, Swaroop Mishra, Tony Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord,
+Peter Clark, and Ashwin Kalyan. Learn to explain: Multimodal reasoning via thought chains for
+science question answering. In The 36th Conference on Neural Information Processing Systems
+(NeurIPS), 2022.
+Yecheng Jason Ma, Shagun Sodhani, Dinesh Jayaraman, Osbert Bastani, Vikash Kumar, and Amy
+Zhang. Vip: Towards universal visual reward and representation via value-implicit pre-training.
+In The Eleventh International Conference on Learning Representations, 2023.
+Yecheng Jason Ma, William Liang, Guanzhi Wang, De-An Huang, Osbert Bastani, Dinesh Jayara-
+man, Yuke Zhu, Linxi Fan, and Anima Anandkumar. Eureka: Human-level reward design via
+coding large language models. In The Twelfth International Conference on Learning Representa-
+tions, 2024.
+Ajay Mandlekar, Danfei Xu, Josiah Wong, Soroush Nasiriany, Chen Wang, Rohun Kulkarni, Li Fei-
+Fei, Silvio Savarese, Yuke Zhu, and Roberto Mart´ ın-Mart´ ın. What matters in learning from offline
+human demonstrations for robot manipulation. In Conference on Robot Learning (CoRL), 2021.
+Ajay Mandlekar, Soroush Nasiriany, Bowen Wen, Iretiayo Akinola, Yashraj Narang, Linxi Fan,
+Yuke Zhu, and Dieter Fox. Mimicgen: A data generation system for scalable robot learning using
+human demonstrations. In Conference on Robot Learning, pp. 1820–1864. PMLR, 2023.
+Matthias Minderer, Alexey Gritsenko, Austin Stone, Maxim Neumann, Dirk Weissenborn, Alexey
+Dosovitskiy, Aravindh Mahendran, Anurag Arnab, Mostafa Dehghani, Zhuoran Shen, et al. Sim-
+ple open-vocabulary object detection. In European Conference on Computer Vision, pp. 728–755.
+Springer, 2022.
+Matthias Minderer, Alexey A. Gritsenko, and Neil Houlsby. Scaling open-vocabulary object de-
+tection. In Thirty-seventh Conference on Neural Information Processing Systems, 2023. URL
+https://openreview.net/forum?id=mQPNcBWjGc.
+Suraj Nair, Aravind Rajeswaran, Vikash Kumar, Chelsea Finn, and Abhinav Gupta. R3m: A univer-
+sal visual representation for robot manipulation. In Conference on Robot Learning, pp. 892–909.
+PMLR, 2023.
+Soroush Nasiriany, Sean Kirmani, Tianli Ding, Laura Smith, Yuke Zhu, Danny Driess, Dorsa
+Sadigh, and Ted Xiao. Rt-affordance: Affordances are versatile intermediate representations
+for robot manipulation. arXiv preprint arXiv:2411.02704, November 2024a. URL https:
+//arxiv.org/abs/2411.02704.
+16
+Soroush Nasiriany, Fei Xia, Wenhao Yu, Ted Xiao, Jacky Liang, Ishita Dasgupta, Annie Xie, Danny
+Driess, Ayzaan Wahid, Zhuo Xu, et al. Pivot: Iterative visual prompting elicits actionable knowl-
+edge for vlms. In International Conference on Machine Learning, 2024b.
+Dantong Niu, Yuvan Sharma, Giscard Biamby, Jerome Quenum, Yutong Bai, Baifeng Shi, Trevor
+Darrell, and Roei Herzig. LLARVA: Vision-action instruction tuning enhances robot learning.
+In 8th Annual Conference on Robot Learning, 2024. URL https://openreview.net/
+forum?id=Q2lGXMZCv8.
+Simone Parisi, Aravind Rajeswaran, Senthil Purushwalkam, and Abhinav Gupta. The unsurprising
+effectiveness of pre-trained vision models for control. In international conference on machine
+learning, pp. 17359–17371. PMLR, 2022.
+Wilbert Pumacay, Ishika Singh, Jiafei Duan, Ranjay Krishna, Jesse Thomason, and Dieter Fox. The
+colosseum: A benchmark for evaluating generalization for robotic manipulation. arXiv preprint
+arXiv:2402.08191, 2024.
+Ilija Radosavovic, Baifeng Shi, Letian Fu, Ken Goldberg, Trevor Darrell, and Jitendra Malik. Robot
+learning with sensorimotor pre-training. In Conference on Robot Learning, pp. 683–693. PMLR,
+2023.
+Urs Ramer. An iterative procedure for the polygonal approximation of plane curves. Computer
+Graphics and Image Processing, 1(3):244–256, 1972. ISSN 0146-664X. doi: https://doi.org/10.
+1016/S0146-664X(72)80017-0. URL https://www.sciencedirect.com/science/
+article/pii/S0146664X72800170.
+Rutav M Shah and Vikash Kumar. Rrl: Resnet as representation for reinforcement learning. In
+International Conference on Machine Learning, pp. 9465–9476. PMLR, 2021.
+Zejiang Shen, Kyle Lo, Lucy Lu Wang, Bailey Kuehl, Daniel S. Weld, and Doug Downey. Incor-
+porating visual layout structures for scientific text classification. ArXiv, abs/2106.00676, 2021.
+URL https://arxiv.org/abs/2106.00676.
+Mohit Shridhar, Lucas Manuelli, and Dieter Fox. Perceiver-actor: A multi-task transformer for
+robotic manipulation. In Conference on Robot Learning, pp. 785–799. PMLR, 2023.
+Ishika Singh, Valts Blukis, Arsalan Mousavian, Ankit Goyal, Danfei Xu, Jonathan Tremblay, Dieter
+Fox, Jesse Thomason, and Animesh Garg. Progprompt: Generating situated robot task plans using
+large language models. In 2023 IEEE International Conference on Robotics and Automation
+(ICRA), pp. 11523–11530. IEEE, 2023.
+Sumedh Anand Sontakke, Jesse Zhang, S´ eb Arnold, Karl Pertsch, Erdem Biyik, Dorsa Sadigh,
+Chelsea Finn, and Laurent Itti. Roboclip: One demonstration is enough to learn robot policies. In
+NeurIPS, 2023.
+Austin Stone, Ted Xiao, Yao Lu, Keerthana Gopalakrishnan, Kuang-Huei Lee, Quan Vuong, Paul
+Wohlhart, Sean Kirmani, Brianna Zitkovich, Fei Xia, et al. Open-world object manipulation using
+pre-trained vision-language models. In Conference on Robot Learning, pp. 3397–3417. PMLR,
+2023.
+Priya Sundaresan, Suneel Belkhale, Dorsa Sadigh, and Jeannette Bohg. Kite: Keypoint-conditioned
+policies for semantic manipulation. In Conference on Robot Learning, pp. 1006–1021. PMLR,
+2023.
+Octo Model Team, Dibya Ghosh, Homer Walke, Karl Pertsch, Kevin Black, Oier Mees, Sudeep
+Dasari, Joey Hejna, Tobias Kreiman, Charles Xu, et al. Octo: An open-source generalist robot
+policy. arXiv preprint arXiv:2405.12213, 2024.
+Marcel Torne, Anthony Simeonov, Zechu Li, April Chan, Tao Chen, Abhishek Gupta, and Pulkit
+Agrawal. Reconciling reality through simulation: A real-to-sim-to-real approach for robust ma-
+nipulation. Robotics: Science and Systems, 2024.
+17
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez,
+Lukasz Kaiser, and Illia Polosukhin. Attention is all you need, 2023. URL https://arxiv.
+org/abs/1706.03762.
+Homer Walke, Kevin Black, Abraham Lee, Moo Jin Kim, Max Du, Chongyi Zheng, Tony Zhao,
+Philippe Hansen-Estruch, Quan Vuong, Andre He, Vivek Myers, Kuan Fang, Chelsea Finn, and
+Sergey Levine. Bridgedata v2: A dataset for robot learning at scale. In Conference on Robot
+Learning (CoRL), 2023.
+Qianqian Wang, Yen-Yu Chang, Ruojin Cai, Zhengqi Li, Bharath Hariharan, Aleksander Holynski,
+and Noah Snavely. Tracking everything everywhere all at once. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision, pp. 19795–19806, 2023.
+Yufei Wang, Zhanyi Sun, Jesse Zhang, Zhou Xian, Erdem Biyik, David Held, and Zackory Erick-
+son. Rl-vlm-f: Reinforcement learning from vision language foundation model feedback. In
+International Conference on Machine Learning, 2024.
+Chuan Wen, Xingyu Lin, John So, Kai Chen, Qi Dou, Yang Gao, and Pieter Abbeel. Any-point
+trajectory modeling for policy learning. arXiv preprint arXiv:2401.00025, 2023.
+Mengda Xu, Zhenjia Xu, Yinghao Xu, Cheng Chi, Gordon Wetzstein, Manuela Veloso, and Shuran
+Song. Flow as the cross-domain manipulation interface. In 8th Annual Conference on Robot
+Learning, 2024.
+Wenhao Yu, Nimrod Gileadi, Chuyuan Fu, Sean Kirmani, Kuang-Huei Lee, Montserrat Gonzalez
+Arenas, Hao-Tien Lewis Chiang, Tom Erez, Leonard Hasenclever, Jan Humplik, et al. Language
+to rewards for robotic skill synthesis. In Conference on Robot Learning, pp. 374–404. PMLR,
+2023.
+Chengbo Yuan, Chuan Wen, Tong Zhang, and Yang Gao. General flow as foundation affordance for
+scalable robot learning. arXiv preprint arXiv:2401.11439, 2024a.
+Wentao Yuan, Jiafei Duan, Valts Blukis, Wilbert Pumacay, Ranjay Krishna, Adithyavairavan Murali,
+Arsalan Mousavian, and Dieter Fox. Robopoint: A vision-language model for spatial affordance
+prediction in robotics. In 8th Annual Conference on Robot Learning, 2024b. URL https:
+//openreview.net/forum?id=GVX6jpZOhU.
+Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual
+manipulation with low-cost hardware. In Kostas E. Bekris, Kris Hauser, Sylvia L. Herbert, and
+Jingjin Yu (eds.), Robotics: Science and Systems XIX, Daegu, Republic of Korea, July 10-14,
+2023, 2023. doi: 10.15607/RSS.2023.XIX.016. URL https://doi.org/10.15607/RSS.
+2023.XIX.016.
+Wanrong Zhu, Jack Hessel, Anas Awadalla, Samir Yitzhak Gadre, Jesse Dodge, Alex Fang, Young-
+jae Yu, Ludwig Schmidt, William Yang Wang, and Yejin Choi. Multimodal C4: An open, billion-
+scale corpus of images interleaved with text. arXiv preprint arXiv:2304.06939, 2023.
+Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart,
+Stefan Welker, Ayzaan Wahid, et al. Rt-2: Vision-language-action models transfer web knowledge
+to robotic control. In Conference on Robot Learning, pp. 2165–2183. PMLR, 2023.
+18
+Paths
+ans
+Low-level
+[x, y, z, ]
+θ1, θ2, …
+Point Data Sim Data Robot Data In-Domain Data
+[(0.49, 0.38,
+0.08, 0.06),
+(0.53, 0.42,
+0.07, 0.05)]
+[(0.1, 0.5, close),
+[(0.2, 0.2, close),
+(0.1, 0.5, close),
+(0.3, 0.2, close),
+(0.7, 0.7, close),
+(0.1, 0.2, close),
+(0.8, 0.7, open)]
+(0.1, 0.3, open)]
+Actions
+Hamster VLM: VILA-1.5-13b
+Low-Level 3D Policy
+Instr.
+z
+Image
+img
+θ
+[EEF pos, ,...] +
+depth
+Put the object in
+the bowl
+Instr. z
+Find all instances
+of cushions
+Put the wine bottle
+in the wine rack
+Cover the bowl
+with the towel
+Image and Path Proprio/Sensor s
+(a) VLM Training on 𝒟off (b) Low-level Policy Training on 𝒟
+Figure 9: (a): Examples of training data in Doff used to train HAMSTER’s VLM. (b): The data used
+to train HAMSTER’s low-level policies.

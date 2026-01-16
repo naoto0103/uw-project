@@ -24,6 +24,8 @@ import os
 import hydra
 import torch
 import dill
+import numpy as np
+import datetime
 from omegaconf import OmegaConf
 import pathlib
 from torch.utils.data import DataLoader
@@ -133,9 +135,19 @@ class TrainManiFlowRoboTwinWorkspace:
 
         # print dataset info
         cprint(f"Dataset: {dataset.__class__.__name__}", 'red')
-        cprint(f"Dataset Path: {dataset.zarr_path}", 'red')
-        cprint(f"Number of training episodes: {dataset.train_episodes_num}", 'red')
-        cprint(f"Number of validation episodes: {dataset.val_episodes_num}", 'red')
+        # Support both zarr-based and overlay datasets
+        if hasattr(dataset, 'zarr_path'):
+            cprint(f"Dataset Path: {dataset.zarr_path}", 'red')
+        elif hasattr(dataset, 'overlay_base_dir'):
+            cprint(f"Overlay Base Dir: {dataset.overlay_base_dir}", 'red')
+        if hasattr(dataset, 'train_episodes_num'):
+            cprint(f"Number of training episodes: {dataset.train_episodes_num}", 'red')
+        elif hasattr(dataset, 'train_mask'):
+            cprint(f"Number of training episodes: {np.sum(dataset.train_mask)}", 'red')
+        if hasattr(dataset, 'val_episodes_num'):
+            cprint(f"Number of validation episodes: {dataset.val_episodes_num}", 'red')
+        elif hasattr(dataset, 'val_mask'):
+            cprint(f"Number of validation episodes: {np.sum(dataset.val_mask)}", 'red')
 
 
         self.model.set_normalizer(normalizer)
@@ -207,40 +219,102 @@ class TrainManiFlowRoboTwinWorkspace:
         
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
-        for local_epoch_idx in range(cfg.training.num_epochs):
+
+        # Structured training log for research analysis
+        structured_log_path = os.path.join(self.output_dir, 'training_metrics.jsonl')
+
+        def save_structured_log(epoch_data: dict):
+            """Append structured log entry as JSON Lines format."""
+            import json
+            with open(structured_log_path, 'a') as f:
+                f.write(json.dumps(epoch_data) + '\n')
+                f.flush()
+
+        # Save experiment metadata at the start
+        experiment_metadata = {
+            'type': 'metadata',
+            'config_name': cfg.name if hasattr(cfg, 'name') else 'unknown',
+            'task_name': cfg.task_name if hasattr(cfg, 'task_name') else 'unknown',
+            'exp_name': cfg.exp_name if hasattr(cfg, 'exp_name') else 'unknown',
+            'num_epochs': cfg.training.num_epochs,
+            'batch_size': cfg.dataloader.batch_size,
+            'learning_rate': cfg.optimizer.lr,
+            'horizon': cfg.horizon if hasattr(cfg, 'horizon') else None,
+            'n_obs_steps': cfg.n_obs_steps if hasattr(cfg, 'n_obs_steps') else None,
+            'n_action_steps': cfg.n_action_steps if hasattr(cfg, 'n_action_steps') else None,
+            'seed': cfg.training.seed,
+            'output_dir': self.output_dir,
+            'start_time': datetime.datetime.now().isoformat(),
+        }
+        save_structured_log(experiment_metadata)
+
+        # DEBUG: Create detailed debug log file
+        debug_log_path = os.path.join(self.output_dir, 'debug_training.log')
+        def debug_log(msg):
+            """Write debug message to file with timestamp and flush immediately."""
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+            with open(debug_log_path, 'a') as f:
+                f.write(f"[{timestamp}] {msg}\n")
+                f.flush()
+
+        debug_log(f"=== Training started ===")
+        debug_log(f"Total epochs: {cfg.training.num_epochs}")
+        debug_log(f"Batches per epoch: {len(train_dataloader)}")
+
+        # Calculate remaining epochs (resume-aware)
+        start_epoch = self.epoch
+        remaining_epochs = cfg.training.num_epochs - start_epoch
+        if remaining_epochs <= 0:
+            cprint(f"Training already completed! (epoch {self.epoch} >= {cfg.training.num_epochs})", 'green')
+            return
+
+        cprint(f"Starting from epoch {start_epoch}, will train for {remaining_epochs} more epochs", 'yellow')
+
+        for local_epoch_idx in range(remaining_epochs):
             step_log = dict()
             # ========= train for this epoch ==========
             train_losses = list()
-            with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
+            debug_log(f"=== Epoch {self.epoch} starting ===")
+            with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}",
                     leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                 for batch_idx, batch in enumerate(tepoch):
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: START")
                     t1 = time.time()
                     # device transfer
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: dict_apply to device START")
                     batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: dict_apply to device DONE")
                     if train_sampling_batch is None:
                         train_sampling_batch = batch
                 
                     # compute loss
                     t1_1 = time.time()
-                    
+
                     # Forward pass
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: compute_loss START")
                     raw_loss, loss_dict = self.model.compute_loss(batch, self.ema_model)
-                   
-                    
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: compute_loss DONE, loss={raw_loss.item():.4f}")
+
                     loss = raw_loss / cfg.training.gradient_accumulate_every
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: backward START")
                     loss.backward()
-                    
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: backward DONE")
+
                     t1_2 = time.time()
 
                     # step optimizer
                     if self.global_step % cfg.training.gradient_accumulate_every == 0:
+                        debug_log(f"Epoch {self.epoch} Batch {batch_idx}: optimizer.step START")
                         self.optimizer.step()
                         self.optimizer.zero_grad()
                         lr_scheduler.step()
+                        debug_log(f"Epoch {self.epoch} Batch {batch_idx}: optimizer.step DONE")
                     t1_3 = time.time()
                     # update ema
                     if cfg.training.use_ema:
+                        debug_log(f"Epoch {self.epoch} Batch {batch_idx}: ema.step START")
                         ema.step(self.model)
+                        debug_log(f"Epoch {self.epoch} Batch {batch_idx}: ema.step DONE")
                     t1_4 = time.time()
                     # logging
                     raw_loss_cpu = raw_loss.item()
@@ -269,6 +343,8 @@ class TrainManiFlowRoboTwinWorkspace:
                         if WANDB:
                             wandb_run.log(step_log, step=self.global_step)
                         self.global_step += 1
+
+                    debug_log(f"Epoch {self.epoch} Batch {batch_idx}: COMPLETE (time={t2-t1:.3f}s)")
 
                     if (cfg.training.max_train_steps is not None) \
                         and batch_idx >= (cfg.training.max_train_steps-1):
@@ -359,34 +435,31 @@ class TrainManiFlowRoboTwinWorkspace:
                 if cfg.checkpoint.save_last_snapshot:
                     self.save_snapshot()
 
-                # sanitize metric names
-                metric_dict = dict()
-                for key, value in step_log.items():
-                    new_key = key.replace('/', '_')
-                    metric_dict[new_key] = value
-                
-                # if not cfg.policy.use_pc_color:
-                #     if not os.path.exists(f'checkpoints/{self.cfg.robotwin_task.name}'):
-                #         os.makedirs(f'checkpoints/{self.cfg.robotwin_task.name}')
-                #     save_path = f'checkpoints/{self.cfg.robotwin_task.name}/{self.epoch + 1}.ckpt'
-                # else:
-                #     if not os.path.exists(f'checkpoints/{self.cfg.robotwin_task.name}_w_rgb'):
-                #         os.makedirs(f'checkpoints/{self.cfg.robotwin_task.name}_w_rgb')
-                #     save_path = f'checkpoints/{self.cfg.robotwin_task.name}_w_rgb/{self.epoch + 1}.ckpt'
-
-                # self.save_checkpoint(save_path)
-                try:
-                    topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
-                except Exception as e:
-                    print(f"Error in getting topk ckpt path: {e}")
-                    topk_ckpt_path = None
-
-                if topk_ckpt_path is not None:
-                    self.save_checkpoint(path=topk_ckpt_path)
+                # Save checkpoint for every checkpoint_every epochs (not just top-k)
+                val_loss = step_log.get('val_loss', 0.0)
+                epoch_ckpt_path = os.path.join(
+                    self.output_dir, 'checkpoints',
+                    f'epoch={self.epoch:04d}-val_loss={val_loss:.6f}.ckpt'
+                )
+                self.save_checkpoint(path=epoch_ckpt_path)
                 
 
             # ========= eval end for this epoch ==========
             policy.train()
+
+            # Save structured epoch log for research analysis
+            epoch_log = {
+                'type': 'epoch',
+                'epoch': self.epoch,
+                'global_step': self.global_step,
+                'train_loss': step_log.get('train_loss'),
+                'val_loss': step_log.get('val_loss'),
+                'train_action_mse_error': step_log.get('train_action_mse_error'),
+                'lr': step_log.get('lr'),
+                'test_mean_score': step_log.get('test_mean_score'),
+                'timestamp': datetime.datetime.now().isoformat(),
+            }
+            save_structured_log(epoch_log)
 
             # end of epoch
             # log of last step is combined with validation and rollout

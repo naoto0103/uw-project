@@ -6,7 +6,7 @@ from maniflow.common.replay_buffer import ReplayBuffer
 
 @numba.jit(nopython=True)
 def create_indices(
-    episode_ends:np.ndarray, sequence_length:int, 
+    episode_ends:np.ndarray, sequence_length:int,
     episode_mask: np.ndarray,
     pad_before: int=0, pad_after: int=0,
     debug:bool=True) -> np.ndarray:

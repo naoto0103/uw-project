@@ -1,0 +1,439 @@
+%%%% Basic Settings %%%%
+% Add uplatex option if you use uplatex as a LaTeX engine.
+% i.e., \documentclass[11pt, twocolumn, dvipdfmx, uplatex]{jsarticle}
+% --------------------
+% Add english option if the body text is written in English.
+\documentclass[11pt, twocolumn, dvipdfmx, english]{jsarticle}
+% \documentclass[11pt, twocolumn, dvipdfmx]{jsarticle} %11pt が MS-Word の10.5pt 相当
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{wrapfig}
+\usepackage{listings}
+\usepackage{amssymb}
+
+%%%% Setting Margin and Line Space %%%%
+\usepackage[truedimen, a4paper, top=27truemm, headheight=28truept, headsep=6truemm, bottom=32truemm, footskip=30truept, left=23truemm, right=23truemm, columnsep=2zw]{geometry}
+\renewcommand{\baselinestretch}{0.8}
+
+%%%% Thesis Style File %%%%
+\usepackage{style/imis-utf}
+
+%%%% Title, Abstract, and Keywords %%%
+\title{2Dパス表現と一貫性フロー学習を用いた階層型生成モデルによる汎用的なロボット操作}
+\etitle{Hierarchical Action Models with 2D Paths and Consistency Flow Training for General Robot Manipulation}
+
+\author{太 \ \ 田 \ \ 尚 \ \ 都}
+\eauthor{OTA Naoto}
+
+\advisors{
+	\begin{tabular}{p{7.2zw}@{}l@{}}
+		指導教員: & 田中 文英，宇津呂 武仁，山口 友之（知能機能工学域）\\
+	\end{tabular}
+}
+
+\eadvisors{
+	\begin{tabular}{p{8.2zw}@{}l@{}}
+		Supervised by: & TANAKA Fumihide, UTSURO Takehito and YAMAGUCHI Tomoyuki (Division of Intelligent Interaction \\
+        Technologies) \\
+	\end{tabular}
+}
+
+\authorheader{筑 \ 波 \ 太 \ 郎} % use English name when you use the English style
+
+\dateheader{2026年3月}
+
+\abstract{%
+Hierarchical vision-language-action (VLA) models that separate high-level semantic planning from low-level motion generation have emerged as a promising approach for robot manipulation. This paper integrates ManiFlow, a Consistency Flow Matching-based policy enabling high-quality action generation in 1-2 inference steps, as the low-level policy guided by 2D end-effector paths from a vision-language model (VLM) fine-tuned on robot path data. Through systematic experiments in RoboTwin 2.0 across 3 tasks and 6 conditions, we reveal three key findings. First, models trained on clean environments consistently outperform those trained on cluttered environments when evaluated on cluttered scenes (average success rate 20.3-28.0\% vs 9.3-10.3\%), suggesting that simplified training conditions facilitate learning essential motion patterns. Second, VLM path guidance improves performance in cross-domain settings (+7.7\% average), indicating that semantic guidance can bridge domain gaps. Third, the Memory Function combining initial and current paths unexpectedly degrades performance, revealing that additional input information requires careful design. These results highlight both the potential and limitations of VLM-guided path conditioning for generalizable manipulation policies.
+}
+
+\keywords{Robot Manipulation, Hierarchical Model, Consistency Flow Matching, Path Guidance, Generalization}
+
+\date{}
+
+%%%% 本文開始 %%%%
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+Developing general-purpose robot manipulation policies remains a long-standing challenge in robotics. Recent advances in large-scale vision-language models (VLMs) have spurred efforts to leverage their rich world knowledge for robot control \cite{1_zitkovich2023rt, 2_kim2024openvla, 25_driess2023palm, 26_mees2024octo}. Vision-language-action (VLA) models, which directly fine-tune VLMs to predict robot actions, can generate control signals end-to-end from task descriptions and image observations, showing promise for generalization in open-world environments \cite{2_kim2024openvla, 27_o2024open, 28_li2023vision}.
+
+However, such monolithic VLA models face several challenges. First, collecting high-quality robot manipulation data is costly, limiting the scale and diversity of available training data \cite{3_li2025hamster, 29_khazatsky2025droidlargescaleinthewildrobot, 30_walke2024bridgedatav2datasetrobot}. Second, VLA models have not yet achieved the level of classical robot control in terms of operational speed and precise motion control. On the other hand, smaller policy models can achieve more precise control compared to monolithic VLA models, but struggle to generalize to conditions different from their training environments \cite{2_kim2024openvla, 4_brohan2022rt}. To address these challenges, hierarchical approaches that separate high-level semantic understanding by VLMs from precise motion generation by smaller policies have been proposed \cite{3_li2025hamster, 5_irpan2022can, 11_gu2023rt}.
+
+HAMSTER, one such hierarchical approach, uses a VLM (VILA-1.5-13B) fine-tuned on robot path data to generate 2D end-effector paths, which serve as guidance for low-level policies such as RVT-2 or 3D Diffuser Actor \cite{3_li2025hamster}. This design allows the VLM to focus on semantic trajectory planning while the low-level policy concentrates on precise control in 3D space. HAMSTER is also notable for its ability to leverage off-domain data without action labels, such as simulation data or data from different embodiments.
+
+Meanwhile, generative models based on diffusion have demonstrated strong performance for robot manipulation \cite{6_chi2025diffusion, 13_ze20243d, 31_ke20243ddiffuseractorpolicy}. However, diffusion models require numerous denoising steps during inference, posing challenges for real-time control. ManiFlow addresses this by adopting Consistency Flow Matching, enabling high-quality action generation in just 1-2 steps \cite{7_yan2025maniflow}. ManiFlow employs the DiT-X (Diffusion Transformer with Cross-Attention) architecture to efficiently integrate diverse inputs including visual, language, and proprioceptive information.
+
+In this work, we propose adopting a mechanism based on ManiFlow as the low-level policy within HAMSTER's hierarchical architecture and integrating 2D paths generated by the VLM into ManiFlow's input. While the original ManiFlow was evaluated under conditions identical to training, we investigate whether introducing VILA path guidance can improve (1) single-task accuracy in the same environment, and (2) generalization performance to evaluation environments different from training.
+
+Specifically, we propose two patterns for path input. The first pattern uses only the path prediction for the current frame. The second pattern additionally retains the path prediction from episode onset, using it alongside the current path. We refer to the latter as the Memory Function. This design aims to enable reference to stable past path information when current-frame path generation becomes unstable due to occlusion or other factors.
+
+Evaluation experiments are conducted in the RoboTwin 2.0 simulation environment \cite{8_chen2025robotwin}. We establish six experimental conditions by combining training environments (clean table or cluttered table) with evaluation environments (cluttered table), and quantitatively analyze the effects of path guidance on in-domain accuracy and cross-domain generalization performance.
+
+\section{Related Work}
+
+\subsection{Hierarchical Robot Manipulation Policies}
+Hierarchical approaches in robot manipulation aim to solve complex tasks by separating high-level planning from low-level control. SayCan proposed combining the knowledge of large language models (LLMs) with robot affordance functions to generate action plans that are both executable and semantically appropriate \cite{5_irpan2022can}. Code as Policies demonstrated a hierarchical code generation approach that uses LLMs to generate program code for robot control, enabling complex spatial reasoning \cite{9_liang2022code}. Inner Monologue achieved closed-loop reasoning by providing environmental feedback to LLMs, integrating success detection and scene descriptions \cite{32_huang2022innermonologueembodiedreasoning}.
+
+In hierarchical VLA models using VLMs, the choice of intermediate representation generated by the high-level model is an important design decision. Keypoint-based affordance prediction \cite{10_yuan2024robopoint} predicts manipulation target positions and placement locations as points, achieved through VLM fine-tuning. RT-Trajectory used 2D trajectory sketches as an intermediate representation to enable flexible task specification and policy generalization \cite{11_gu2023rt}. For low-level policies, 3D-aware policies such as Perceiver-Actor \cite{33_shridhar2022perceiveractor} using voxelized 3D observations, and RVT \cite{34_goyal2023rvtroboticviewtransformer} and RVT-2 \cite{35_goyal2024rvt2learningprecisemanipulation} using multi-view images from virtual viewpoints, have demonstrated high accuracy.
+
+HAMSTER proposed a hierarchical architecture where a VLM predicts 2D end-effector paths, which serve as guidance for low-level 3D-aware policies \cite{3_li2025hamster}. A key advantage of this design is that the high-level VLM can be trained on off-domain data without action labels, such as simulation data or data from different embodiments. In HAMSTER, methods of overlaying path information on images and concatenating it as a separate input dimension were compared, with the latter showing superior performance. In this work, we adopt the method of overlaying paths onto images and using them as input to ManiFlow.
+
+\subsection{Diffusion Models and Flow Matching for Robot Control}
+Diffusion models are generative models that learn gradual transformations from noise to data, achieving significant success in image generation \cite{12_ho2020denoising, 36_song2021scorebasedgenerativemodelingstochastic}. Diffusion Policy applied diffusion models to robot visuomotor policies, demonstrating strong performance in representing multimodal action distributions and handling high-dimensional action spaces \cite{6_chi2025diffusion}. 3D Diffusion Policy further improved visual generalization by using 3D representations extracted from sparse point clouds \cite{13_ze20243d}. 3D Diffuser Actor combined 3D scene representations with Diffusion Policy, achieving high performance on the RLBench benchmark \cite{31_ke20243ddiffuseractorpolicy}. However, diffusion models require numerous denoising steps during inference (typically 10-100 steps), posing challenges for real-time control applications.
+
+Several approaches have been proposed to address this inference efficiency problem. DDIM, as a deterministic sampling variant of DDPM, enabled high-quality generation with fewer steps \cite{37_song2021denoising}. Consistency Models enabled single-step generation by learning direct mappings from arbitrary points in the diffusion process to target data \cite{14_song2023consistencymodels}. For robot control applications, Consistency Policy proposed accelerating inference through knowledge distillation from pretrained Diffusion Policies \cite{19_prasad2024consistency}. ManiCM applied Consistency Models to 3D Diffusion Policy, achieving real-time 3D manipulation \cite{20_lu2024manicm}.
+
+Flow Matching, on the other hand, constructs generative models through a different approach than diffusion models. Flow Matching directly learns continuous transformations (flows) from noise distributions to data distributions in a simulation-free manner \cite{15_lipman2022flow}. Rectified Flow achieved more efficient sampling by straightening these flows \cite{21_liu2022flow}. These methods offer more stable training and higher-quality generation with fewer steps compared to diffusion models. $\pi_0$ combined VLA models with Flow Matching, achieving general control across diverse robot configurations including single-arm, bimanual, and mobile manipulators \cite{22_black2024pi_0}.
+
+ManiFlow adopts Consistency Flow Matching, which integrates Flow Matching and Consistency Training \cite{7_yan2025maniflow}. Specifically, in addition to the standard Flow Matching loss, it simultaneously optimizes a continuous-time Consistency loss that constrains different points on flow trajectories to converge to the same target data point. This design enables high-quality generation in 1-2 steps without requiring pretrained teacher models. The core of ManiFlow's architecture, DiT-X, is built upon Diffusion Transformer \cite{16_peebles2023scalable} and efficiently integrates diverse input modalities including visual, language, and proprioceptive information through cross-attention and AdaLN-Zero conditioning. In this work, we adopt ManiFlow as the low-level policy and integrate VLM-generated paths as additional visual input.
+
+\subsection{Domain Adaptation and Generalization}
+The domain gap between training and evaluation environments is a critical challenge when deploying robot manipulation policies to real environments. Domain Randomization, which randomizes rendering parameters in simulation environments, is widely used to facilitate transfer to real environments \cite{17_tobin2017domain}. Colosseum is a benchmark that evaluates policy generalization through 20 tasks × 14 axes of environmental perturbations, measuring robustness to changes in color, texture, size, lighting, and background \cite{38_Pumacay2024THECA}.
+
+Pretraining visual representations is also an effective approach for improving generalization. R3M pretrained visual representations using large-scale human video data, improving transfer performance to robot manipulation tasks through temporal contrastive learning and video-language alignment \cite{18_nair2022r3m}. CLIP performed contrastive learning on 400 million image-text pairs, achieving zero-shot transfer capabilities \cite{39_Radford2021LearningTV}. DINOv2 performed self-supervised learning on 142 million images, providing general visual features without fine-tuning \cite{40_oquab2024dinov}.
+
+RoboTwin 2.0 is a large-scale benchmark containing 731 objects, 50 tasks, and 5 robot embodiment types, implementing 5 axes of Domain Randomization including Clutter, Lighting, and Background \cite{8_chen2025robotwin}. Compared to standard benchmarks such as RLBench \cite{41_James2019RLBenchTR} and MetaWorld \cite{42_Yu2019MetaWorldAB}, it enables evaluation with more realistic visual variations. In this work, we use the RoboTwin 2.0 environment to evaluate how well policies trained on clean table conditions can generalize to cluttered table conditions. Whether VLM path guidance can bridge such domain gaps is one of the main questions investigated in this study.
+
+\section{Proposed Method}
+This chapter describes the proposed system that integrates 2D path guidance from VLMs into ManiFlow.
+
+\subsection{System Overview}
+The proposed system adopts a hierarchical architecture consisting of a high-level path generation module and a low-level action generation module. Figure ~\ref{fig:system_overview} shows the overall system configuration.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\linewidth]{system_overview.png}
+\caption{Overview of the proposed hierarchical system. The high-level module (VILA-1.5-13B) generates 2D end-effector paths from RGB images and task instructions. The generated paths are overlaid onto observation images and fed to the low-level module (ManiFlow), which outputs 16-step actions. Two path input patterns are supported: current path only, and initial path combined with current path (Memory Function).}
+\label{fig:system_overview}
+\end{figure*}
+
+The high-level module uses VILA-1.5-13B\cite{23_lin2024vila}. VILA takes an RGB image and task description as input and outputs the 2D path that the end-effector should follow. The output path is represented as a sequence of normalized 2D coordinates (each coordinate in the range [0, 1]) and gripper states (open/close). We use the model fine-tuned on robot manipulation data from the HAMSTER project\cite{3_li2025hamster}.
+
+The low-level module uses ManiFlow\cite{7_yan2025maniflow}. The original ManiFlow takes RGB images from the past 2 steps and the robot's proprioceptive state (joint angles and gripper state) as input, generating 16 steps of actions at once. In this work, we overlay the 2D path generated by VILA onto these input images, thereby conveying high-level trajectory guidance to the low-level policy.
+
+The proposed system provides two patterns for path input:
+
+\textbf{Pattern 1: Current path only}
+
+Only the path generated by VILA for the current frame is used. Specifically, the current path is overlaid onto each of the two past observation images that serve as input to ManiFlow, and provided to ManiFlow along with the robot state.
+
+\textbf{Pattern 2: Initial path + Current path (Memory Function)}
+
+Both the path generated at episode onset (initial path) and the path generated for the current frame (current path) are used. This design aims to enable reference to stable initial path information when current-frame path generation becomes unstable due to occlusion during task execution. We refer to this mechanism as the Memory Function.
+
+The inference flow proceeds as follows. Since ManiFlow predicts 16 steps of actions at once, path generation occurs every 16 steps rather than every frame:
+
+\begin{enumerate}
+    \item \textbf{Step 0}: Execute VILA path generation and create initial overlay and current overlay. Input these to ManiFlow and predict 16 steps of actions at once.
+    \item \textbf{Steps 1-15}: Sequentially execute the predicted actions.
+    \item \textbf{Step 16}: Execute new VILA path generation and update the current overlay. The initial overlay remains fixed from episode onset. Predict the next 16 steps of actions at once.
+    \item Repeat every 16 steps until task completion.
+\end{enumerate}
+
+This design limits the overhead of VILA path generation to once every 16 steps, minimizing the impact on real-time control.
+
+\subsection{High-Level Path Generation}
+The high-level module uses VILA-1.5-13B \cite{23_lin2024vila}, which was fine-tuned on robot manipulation data in the HAMSTER project \cite{3_li2025hamster}. VILA is a vision-language model combining the SigLIP visual encoder with the Vicuna language model, pretrained on 5.3 billion image-text pairs.
+
+\subsubsection{Input and Output}
+The input to VILA consists of an RGB image and a natural language task instruction. Task instructions are given in forms such as ``there is a hammer and a block on the table, use the arm to grab the hammer and beat the block'' or ``click the bell's top center on the table.''
+
+VILA's output is structured in the following format:
+
+\begin{lstlisting}[
+    basicstyle=\ttfamily, 
+    breaklines=true, 
+    columns=fullflexible,
+    frame=single 
+]
+<ans>[(x1, y1), (x2, y2), <action>Close Gripper</action>, (x3, y3), ...]</ans>
+\end{lstlisting}
+
+Here, each coordinate (x, y) represents a 2D position normalized to the range [0, 1], and \texttt{<action>} tags indicate gripper state change points. By parsing this output, we obtain a path representation including the gripper state (open/close) corresponding to each waypoint.
+
+\subsubsection{Path Visualization}
+Generated paths are rendered as overlays on the original RGB image. The rendering specifications follow the original HAMSTER\cite{3_li2025hamster} implementation:
+
+\begin{itemize}
+    \item \textbf{Path color}: Uses the jet colormap, encoding temporal progression through color changes from blue $\rightarrow$ cyan $\rightarrow$ green $\rightarrow$ yellow $\rightarrow$ red
+    \item \textbf{Line width}: Scaled according to image size (based on 512$\times$512 images)
+    \item \textbf{Gripper markers}: Circular markers drawn only at gripper state change points
+    \begin{itemize}
+        \item Open state: Blue circle (BGR: 255, 0, 0)
+        \item Close state: Red circle (BGR: 0, 0, 255)
+    \end{itemize}
+\end{itemize}
+
+Figure~\ref{fig:payh_generation} shows examples of path overlays.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\linewidth]{path_generation.png}
+\caption{Examples of path overlays. Paths are rendered using the jet colormap (blue $\rightarrow$ cyan $\rightarrow$ green $\rightarrow$ yellow $\rightarrow$ red) to indicate temporal progression. Circular markers denote gripper state changes: blue for open, red for close.}
+\label{fig:payh_generation}
+\end{figure}
+
+\subsubsection{Path Generation Reliability}
+Since VILA is configured with temperature=0, the output is deterministic, but some frames may produce outputs that do not follow the specified format. To address this issue, we adopt the following strategies:
+
+\begin{enumerate}
+    \item \textbf{Retry mechanism}: Up to 2 path generation attempts per frame
+    \item \textbf{Fallback parsing}: Automatic completion for outputs interpretable as coordinate data even when \texttt{<ans>} tags are omitted or coordinate parentheses are missing
+    \item \textbf{Fallback path}: When path generation fails, the most recently successful path is used as a substitute. For consecutive failures at episode onset, the first successful path within the episode is retroactively applied
+\end{enumerate}
+
+This design ensures the same fallback strategy is applied during both training and evaluation, maintaining consistency in the input distribution.
+
+\subsection{Low-Level Action Generation}
+The low-level module uses ManiFlow\cite{7_yan2025maniflow}, a robot manipulation policy based on Consistency Flow Matching. This section describes ManiFlow's architecture and how path input is integrated in this work.
+
+\subsubsection{ManiFlow Overview}
+ManiFlow achieves high-quality action generation in 1-2 steps through Consistency Flow Matching, which integrates Flow Matching\cite{15_lipman2022flow} and Consistency Training\cite{14_song2023consistencymodels}. While conventional Diffusion Policy\cite{6_chi2025diffusion} requires 10-100 denoising steps during inference, ManiFlow achieves comparable or better quality with significantly fewer steps.
+
+ManiFlow training simultaneously optimizes the standard Flow Matching loss and Consistency loss. The Flow Matching loss learns the velocity field from noise points to data points:
+
+\begin{equation}
+\mathcal{L}_{FM}(\theta) = \mathbb{E}_{x_0, x_1}[\|v_\theta(x_t, t) - (x_1 - x_0)\|^2]
+\end{equation}
+
+Here, $x_t = (1-t)x_0 + tx_1$ is the linear interpolation between noise $x_0$ and data $x_1$. The Consistency loss constrains different points on flow trajectories to converge to the same target:
+
+\begin{equation}
+\mathcal{L}_{CT}(\theta) = \mathbb{E}_{t, \Delta t}[\|v_\theta(x_t, t, \Delta t) - \tilde{v}_{target}\|^2]
+\end{equation}
+
+By combining these losses, high-quality generation is achieved in few steps without requiring pretrained teacher models.
+
+\subsubsection{DiT-X Architecture}
+The core of ManiFlow's architecture is DiT-X (Diffusion Transformer with Cross-Attention). DiT-X is built upon Diffusion Transformer\cite{16_peebles2023scalable} and features:
+
+\begin{itemize}
+    \item \textbf{Adaptive cross-attention}: Enables fine-grained token-level interactions between action tokens and observation features (visual, language)
+    \item \textbf{AdaLN-Zero conditioning}: Dynamically generates scale and shift parameters based on low-dimensional inputs such as timesteps and robot states, adaptively adjusting network behavior
+\end{itemize}
+
+These mechanisms enable efficient multimodal integration of visual, language, and proprioceptive inputs.
+
+\subsubsection{Path Input Integration in This Work}
+The original ManiFlow takes RGB images from the past 2 steps and the robot's proprioceptive state (14 dimensions: 7 DoF joint positions and gripper state for each arm) as input, generating 16 steps of actions at once.
+
+In this work, we integrate high-level guidance from VILA by replacing the input RGB images with path overlay images. Table~\ref{tab:input_config} shows the specific input configuration for each condition.
+
+\begin{table*}[t]
+\centering
+\caption{Input Configuration for Each Condition}
+\label{tab:input_config}
+\begin{tabular}{lccc}
+\hline
+Condition & Input Image & Proprioception & Output \\
+\hline
+Original ManiFlow & RGB image (past 2 steps) & 14 dim & 16 steps of actions \\
+Current path only & current overlay (past 2 steps) & 14 dim & 16 steps of actions \\
+Initial + Current & initial overlay + current overlay & 14 dim & 16 steps of actions \\
+\hline
+\end{tabular}
+\end{table*}
+
+Path overlay images are the original RGB images with the 2D path generated by VILA visually rendered on them. ManiFlow is expected to learn the overlaid path information as visual features and utilize it for task execution.
+
+\subsection{Memory Function}
+In this work, we propose a second pattern for path input that combines the path from episode onset (initial path) with the current frame path (current path). We refer to this mechanism as the Memory Function.
+
+During task execution, occlusion may occur when the robot's end-effector or grasped objects obstruct the field of view. In such situations, the quality of paths generated by VILA may degrade, producing inaccurate or incomplete trajectories. At episode onset (frame 0), occlusion typically does not occur, and the task target objects are clearly visible. Therefore, paths generated at this point are considered reliable as overall trajectory plans for the task. The Memory Function maintains this initial path, enabling reference to overall task context information even when current path quality degrades during task execution.
+
+When using the Memory Function, input to ManiFlow is configured as follows:
+
+\begin{itemize}
+    \item \textbf{Initial overlay}: RGB image at episode onset (frame 0) with the path generated at that time overlaid. Fixed until episode end.
+    \item \textbf{Current overlay}: Current frame RGB image with the path generated for that frame overlaid. Updated every 16 steps.
+    \item \textbf{Proprioceptive state}: Current robot state (14 dimensions)
+\end{itemize}
+
+Figure ~\ref{fig:memory_function} shows a conceptual diagram of the Memory Function.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\linewidth]{memory_function.png}
+\caption{Overview of the proposed hierarchical system. The high-level module (VILA-1.5-13B) generates 2D end-effector paths from RGB images and task instructions. The generated paths are overlaid onto observation images and fed to the low-level module (ManiFlow), which outputs 16-step actions. Two path input patterns are supported: current path only, and initial path combined with current path (Memory Function).}
+\label{fig:memory_function}
+\end{figure*}
+
+This mechanism is expected to improve occlusion robustness, preserve task context, and enable utilization of long-term planning information. Compared to using only the current path (Pattern 1), this approach incurs slightly higher computational cost due to the additional input image, but offers the advantage of maintaining the overall plan from the initial state. In our experiments, we compare these two patterns and quantitatively verify the effectiveness of the Memory Function.
+
+\section{Experiments}
+This chapter describes the experimental setup and results for verifying the effectiveness of the proposed method.
+
+\subsection{Experimental Setup}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\linewidth]{visualization_of_each_task.png}
+\caption{Example scenes of the three evaluation tasks in RoboTwin 2.0 under cluttered table. (a) Click Bell, (b) Move Can Pot, (c) Beat Block Hammer.}
+\label{fig:robotwin2.0_scene}
+\end{figure*}
+
+Experiments were conducted in the RoboTwin 2.0 simulation environment\cite{8_chen2025robotwin}. RoboTwin 2.0 is built on the SAPIEN 3.0.0b1 physics engine\cite{24_xiang2020sapien} and provides benchmarks for bimanual manipulation tasks using the AgileX Cobot Magic robot. This work focuses on single-arm tasks, using the clean table and cluttered table conditions provided as table environment settings. In the cluttered table condition, objects unrelated to the task are randomly placed on the table, increasing visual complexity.
+
+For evaluation tasks, we selected 3 tasks from RoboTwin 2.0's single-arm tasks, considering difficulty and diversity of motion patterns. Click\_bell involves simple contact motion, move\_can\_pot is a standard pick-and-place task, and beat\_block\_hammer requires tool use with two-stage motion. For each task, we collected 50 successful trajectories using RoboTwin 2.0's scripted expert policy as training data.
+
+In this work, we established 6 experimental conditions (C1-C6) by combining 3 model configurations (original ManiFlow, VILA + ManiFlow (current path), VILA + ManiFlow (initial + current path)) with 2 training environments (cluttered, clean). Table~\ref{tab:exp_conditions} shows the details of each condition. All conditions were evaluated on the cluttered table condition. Conditions C1-C3 are in-domain settings with training and evaluation on cluttered environments, while conditions C4-C6 are cross-domain settings with training on clean environments and evaluation on cluttered environments.
+
+\begin{table*}[t]
+\centering
+\caption{Experimental Conditions}
+\label{tab:exp_conditions}
+\begin{tabular}{lccc}
+\hline
+Condition & Training Env & Evaluation Env & Path Input \\
+\hline
+C1 & Cluttered & Cluttered & None (Original ManiFlow) \\
+C2 & Cluttered & Cluttered & Current path \\
+C3 & Cluttered & Cluttered & Initial + Current path \\
+C4 & Clean & Cluttered & None (Original ManiFlow) \\
+C5 & Clean & Cluttered & Current path \\
+C6 & Clean & Cluttered & Initial + Current path \\
+\hline
+\end{tabular}
+\end{table*}
+
+This design tests the following four hypotheses: \textbf{H1} (VILA path guidance improves in-domain accuracy), \textbf{H2} (VILA path guidance improves cross-domain generalization), \textbf{H3} (Memory Function outperforms current path only), and \textbf{H4} (path guidance effects are more pronounced in cross-domain conditions).
+
+For evaluation metrics, we used task success rate based on 100 trials per task as the primary metric, with success determined using RoboTwin 2.0's built-in judgment engine. As auxiliary metrics, we measured VILA path generation time, ManiFlow action generation time, and path generation success rate. ManiFlow training settings were unified across all conditions: 2 observation steps, 16 action prediction steps, and 501 training epochs.
+
+\subsection{Results and Analysis}
+
+\subsubsection{Effect of Input Representation Mode}
+
+Figure~\ref{fig:main_results} shows success rates by condition, and Table~\ref{tab:success_rate} provides detailed numerical results. This section verifies hypotheses H1-H4 regarding the effects of path input modes.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{main_results_all.png}
+\caption{Success rate by condition}
+\label{fig:main_results}
+\end{figure}
+
+\begin{table*}[t]
+\centering
+\caption{Task Success Rate (\%)}
+\label{tab:success_rate}
+\begin{tabular}{lcccccc}
+\hline
+Task & C1 & C2 & C3 & C4 & C5 & C6 \\
+\hline
+Click Bell & 4.0 & 2.0 & 4.0 & 3.0 & \textbf{20.0} & 1.0 \\
+Move Can Pot & 21.0 & 20.0 & 26.0 & 27.0 & 27.0 & 27.0 \\
+Beat Block Hammer & 4.0 & 6.0 & 1.0 & 31.0 & \textbf{37.0} & 11.0 \\
+\textbf{Average} & 9.7 & 9.3 & 10.3 & 20.3 & \textbf{28.0} & 13.0 \\
+\hline
+\end{tabular}
+\end{table*}
+
+\textbf{H1: Path Guidance Effect in In-domain Conditions}
+
+We compared C1 (baseline) with C2 and C3 (with path). C1$\rightarrow$C2 showed -0.3\% on average, and C1$\rightarrow$C3 showed +0.7\% on average, indicating no consistent improvement from VILA path guidance. This result suggests that path guidance may not provide additional information in in-domain conditions. Furthermore, the visual changes introduced by path overlays may have increased visual noise in cluttered training environments, making learning more difficult for ManiFlow.
+
+\textbf{H2: Path Guidance Effect in Cross-domain Conditions}
+
+We compared C4 (baseline) with C5 and C6 (with path). C4$\rightarrow$C5 showed an average improvement of +7.7\%, with improvements confirmed in 2 of 3 tasks (Click Bell: +17.0\%, Beat Block Hammer: +6.0\%). In contrast, C4$\rightarrow$C6 showed a -7.3\% decrease in performance. The partial effectiveness of path guidance in cross-domain conditions can be attributed to VILA's paths compensating for the visual differences between training (clean) and evaluation (cluttered) environments. Since VILA is pretrained on large-scale data, it can generate appropriate paths even in cluttered environments, providing ManiFlow with trajectory information necessary for task execution.
+
+\textbf{H3: Effect of Memory Function (Initial + Current path)}
+
+We compared C2 vs C3 and C5 vs C6. In in-domain conditions (C2$\rightarrow$C3), there was a slight improvement of +1.0\% on average, but in cross-domain conditions (C5$\rightarrow$C6), a substantial performance decrease of -15.0\% on average was observed. This contrasting result indicates that the effectiveness of initial path strongly depends on domain conditions. In in-domain conditions, the initial path may have functioned somewhat as contextual information for the overall task, contributing slightly to performance improvement. In cross-domain conditions, however, inputting two overlay images may have increased the amount of information to process, becoming a burden for models trained on clean environments. Additionally, as the episode progressed, information from the initial path (at frame 0) may have diverged from the current situation, providing misleading guidance. This result suggests that the effectiveness of Memory Function depends on the combination of training and evaluation environments.
+
+\textbf{H4: Domain Dependency of Path Guidance Effect}
+
+We compared (C2-C1) vs (C5-C4) and (C3-C1) vs (C6-C4). For the current path mode, the cross-domain improvement (+7.7\%) was larger than the in-domain improvement (-0.3\%), and this trend was confirmed in 2 of 3 tasks. In contrast, the initial+current mode showed the opposite pattern, with in-domain improvement (+0.7\%) versus a substantial cross-domain decrease (-7.3\%). This contrasting result indicates that the adaptation characteristics to domain gaps differ depending on the path input mode. The current path mode demonstrates effectiveness in cross-domain conditions where VILA's semantic guidance bridges the domain gap, while the initial+current mode is only effective in in-domain conditions and becomes counterproductive when domain gaps exist due to information inconsistency.
+
+\subsubsection{Effect of Training Environment}
+
+From the results in Table~\ref{tab:success_rate}, an unexpected finding emerged that was not hypothesized. Conditions trained on clean environments (C4-C6, average 13.0-28.0\%) consistently showed higher success rates than conditions trained on cluttered environments (C1-C3, average 9.3-10.3\%). Particularly for the Beat Block Hammer task, C4 (31.0\%) and C5 (37.0\%) substantially outperformed C1-C3 (1.0-6.0\%).
+
+This result suggests that models trained on cluttered environments may have overfit to the scatter patterns specific to training data and failed to handle different scatter patterns during evaluation. In contrast, models trained on clean environments could efficiently learn essential motion patterns for tasks in environments with less visual noise, resulting in improved generalization to unseen cluttered environments.
+
+\subsubsection{Task-Specific Analysis}
+
+Different result patterns were observed across tasks. For Click Bell, C5 showed an outstanding success rate (20.0\%), while other conditions remained low at 1.0-4.0\%. For Move Can Pot, differences between conditions were relatively small (20.0-27.0\%), indicating limited effectiveness of path guidance. For Beat Block Hammer, high success rates were achieved in C4 (31.0\%) and C5 (37.0\%), but other conditions remained low at 1.0-11.0\%.
+
+These results suggest that the effectiveness of VILA path guidance depends on task characteristics. For tasks requiring precise manipulation or clear trajectory planning (Click Bell, Beat Block Hammer), appropriately generated paths contribute to improved motion accuracy. In contrast, for standard pick-and-place tasks like Move Can Pot, motion patterns are relatively simple, limiting additional improvement from path guidance.
+
+\subsubsection{Training Dynamics}
+
+We conducted 501 epochs of training for all 18 conditions (3 tasks $\times$ 6 conditions) and analyzed the progression of Training Loss and Validation Loss. Figure~\ref{fig:training_curves} shows the Training Loss (top) and Validation Loss (bottom) for the six conditions on the Click Bell task.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{train_val_loss_click_bell.png}
+\caption{Training and Validation Loss curves for the Click Bell task across six conditions. Top: Training Loss. Bottom: Validation Loss.}
+\label{fig:training_curves}
+\end{figure}
+
+For Training Loss, all six conditions converged along nearly identical curves, with no notable differences in training progression between conditions. This indicates that the presence or absence of path input and differences in training environments do not significantly affect the model's ability to fit the training data.
+
+In contrast, Validation Loss showed different trends across conditions. While five conditions (C1, C2, C4, C5, C6) remained stable at low values throughout training, C3 (Cluttered training + Memory Function) exhibited an increasing trend as epochs progressed. This trend suggests signs of overfitting. This indicates that the combination of training on cluttered environments and the Memory Function may create conditions prone to overfitting.
+
+Additionally, for the Beat Block with Hammer task, Cluttered training conditions (C1-C3) showed a larger increase in Validation Loss after convergence compared to Clean training conditions (C4-C6). These results suggest that 50 episodes may not be sufficient training data for the increased input information from path overlays, Memory Function, and cluttered environments.
+
+\subsubsection{Computational Cost}
+
+\begin{table*}[t]
+\centering
+\caption{Inference Time (ms)}
+\label{tab:inference_time}
+\begin{tabular}{cccc}
+\hline
+Condition & VILA & ManiFlow & Total Overhead \\
+\hline
+C1, C4 & - & 108-136 & - \\
+C2, C5 & 4313-4703 & 118-136 & +4.3-4.7s \\
+C3, C6 & 4361-4363 & 118-126 & +4.4s \\
+\hline
+\end{tabular}
+\end{table*}
+
+Path generation by VILA incurs an overhead of approximately 4.3-4.7 seconds. Since ManiFlow alone has fast inference time of approximately 100-140ms, with the current design of VILA inference every 16 steps, overall episode execution time is approximately doubled. Considering C5's improvement (+7.7\%) in cross-domain conditions, this overhead may be acceptable in application scenarios where generalization performance is important. For applications requiring real-time performance, lighter VLMs or optimization of path generation frequency is necessary.
+
+\subsection{Limitations}
+
+This study has several limitations.
+
+First, evaluations in this study were conducted only in the RoboTwin 2.0 simulation environment, without verification on real robots. A sim-to-real gap exists between simulation and real environments, and differences in visual appearance, physical properties, and sensor noise may affect performance. The extent to which VILA path guidance is robust to this sim-to-real gap needs to be verified through future real robot experiments.
+
+Second, the tasks used for evaluation were limited to 3 types (click\_bell, move\_can\_pot, beat\_block\_hammer). While these tasks were selected considering difficulty and diversity of motion patterns, the effects of path guidance on more complex long-horizon tasks, bimanual coordination tasks, or contact-rich manipulation tasks remain unverified. Given that the effectiveness of path guidance was suggested to depend on task characteristics, evaluation on a broader set of tasks is necessary.
+
+Third, regarding the unexpected performance degradation caused by the Memory Function (initial + current path), this study did not sufficiently elucidate its causes. The original design intent was to improve robustness by referencing the initial path when occlusion occurs. However, we did not quantitatively evaluate how much occlusion occurred in the tasks used in this experiment, nor how much it affected path generation quality. Future work should quantitatively analyze the frequency and impact of occlusion, and design more sophisticated Memory mechanisms such as adaptive path reference based on occlusion detection.
+
+\section{Conclusion}
+In this work, we proposed a method that adopts ManiFlow as the low-level policy in HAMSTER's hierarchical architecture and integrates 2D paths generated by VLMs into ManiFlow's input. Through systematic experiments with 3 tasks $\times$ 6 conditions in the RoboTwin 2.0 simulation environment, we verified the effects of path guidance on single-task accuracy and generalization performance.
+
+The experiments yielded the following findings. First, models trained on clean environments consistently showed higher generalization performance than models trained on cluttered environments (average success rate 20.3-28.0\% vs 9.3-10.3\%). This suggests that learning in visually simple environments promotes acquisition of essential motion patterns for tasks, consequently improving generalization to unseen environments. Second, VILA path guidance was effective in cross-domain conditions (clean training $\rightarrow$ cluttered evaluation), achieving an average +7.7\% improvement in current path mode. This indicates the potential for VLM semantic guidance to bridge domain gaps. Third, the Memory Function (initial + current path) unexpectedly caused performance degradation, revealing that additional information is not necessarily beneficial in input representation design.
+
+This study has clarified the potential and challenges of hierarchical approaches combining high-level trajectory planning by VLMs with fast action generation by Consistency Flow Matching. Future work should further verify the practicality of the proposed method through real robot verification, evaluation on a broader set of tasks, and design of Memory mechanisms adaptive to occlusion.
+
+\section*{Acknowledgments}
+I would like to show my sincere appreciation to Professor Fumihide Tanaka, Professor Takehito Utsuro, and Professor Tomoyuki Yamaguchi for their great help and invaluable academic guidance. I am also deeply grateful to Professor Dieter Fox and Mr. Ge Yan at the University of Washington for their exceptional support.
+
+This work was supported by Cross-Pacific AI Initiative (X-PAI).
+
+\bibliographystyle{unsrt} % bibファイルのスタイル指定 日本語では{junsrt}とする
+\bibliography{references}
+
+\vspace{2zh}
+\begin{minipage}{73truemm}
+ \begin{wrapfigure}[6]{l}[-4pt]{30truemm}
+ \vspace{-3\baselineskip}
+ \begin{center}
+  \includegraphics[width=30truemm]{IDPhoto.jpg}
+ \end{center}
+ \end{wrapfigure}
+ \noindent 太 \ 田 \ 尚 \  都\\\\
+ 筑波大学大学院システム情報工学研究群知能機能システム学位プログラム所属
+\end{minipage}
+
+\vspace{4zh}
+----------------------------------------------\par
+
+\end{document}

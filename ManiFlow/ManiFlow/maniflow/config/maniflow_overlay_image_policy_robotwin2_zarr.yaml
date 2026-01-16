@@ -1,0 +1,193 @@
+# ManiFlow Training Config for RoboTwin 2.0 with Overlay Images (Zarr-based)
+#
+# This config trains ManiFlow with HAMSTER-style overlay images using the
+# fast Zarr-based dataset. Much faster than PNG-based loading!
+#
+# Key features:
+# - Zarr-based dataset (all data in memory, fast __getitem__)
+# - Dual overlay images (initial + current) for implicit memory
+# - R3M encoder (pretrained on robot manipulation videos)
+# - DiTX with Consistency Flow Training
+#
+# IMPORTANT: Run convert_overlay_to_zarr.py first!
+
+defaults:
+  - robotwin_task: robotwin2_overlay_single_arm_zarr
+
+name: train_maniflow_overlay_image_policy_zarr
+
+task_name: ${robotwin_task.name}
+shape_meta: ${robotwin_task.shape_meta}
+exp_name: "robotwin2_overlay_zarr_v1"
+
+# Sequence parameters
+horizon: 16
+n_obs_steps: 2
+n_action_steps: 16
+n_latency_steps: 0
+dataset_obs_steps: ${n_obs_steps}
+obs_as_global_cond: true
+
+# Policy configuration
+policy:
+  _target_: maniflow.policy.maniflow_image_policy.ManiFlowTransformerImagePolicy
+  block_type: "DiTX"
+
+  # Model architecture (moderate size for initial experiments)
+  n_layer: 8
+  n_head: 8
+  n_emb: 512
+  visual_cond_len: 512
+  max_lang_cond_len: 256
+  qkv_bias: true
+  qk_norm: true
+
+  # Language conditioning (disabled for now)
+  language_conditioned: false
+  pre_norm_modality: false
+
+  # Flow matching training parameters
+  flow_batch_ratio: 0.75
+  consistency_batch_ratio: 0.25
+  sample_t_mode_flow: "beta"
+  sample_t_mode_consistency: "discrete"
+  sample_dt_mode_consistency: "uniform"
+  sample_target_t_mode: "relative"
+  denoise_timesteps: 10
+
+  # Timestep embeddings
+  diffusion_timestep_embed_dim: 128
+  diffusion_target_t_embed_dim: 128
+
+  # Sequence parameters
+  horizon: ${horizon}
+  n_action_steps: ${n_action_steps}
+  n_obs_steps: ${n_obs_steps}
+  num_inference_steps: 10
+  obs_as_global_cond: true
+  shape_meta: ${shape_meta}
+
+  # Observation encoder (R3M - same as ManiFlow original)
+  obs_encoder:
+    _target_: maniflow.model.vision_2d.timm_obs_encoder.TimmObsEncoder
+    shape_meta: ${shape_meta}
+
+    # R3M encoder (ManiFlow original setting)
+    model_name: 'r3m'
+    pretrained: false
+    frozen: false
+
+    global_pool: ''
+    feature_aggregation: null
+    position_encording: 'sinusoidal'
+    downsample_ratio: 32
+
+    # Data augmentation (same as ManiFlow original)
+    transforms:
+      - type: RandomCrop
+        ratio: 0.95
+      - _target_: torchvision.transforms.RandomRotation
+        degrees:
+          - -5.0
+          - 5.0
+        expand: false
+      - _target_: torchvision.transforms.ColorJitter
+        brightness: 0.3
+        contrast: 0.4
+        saturation: 0.5
+        hue: 0.08
+
+    use_group_norm: true
+    share_rgb_model: false  # Separate encoders for initial/current overlays
+    imagenet_norm: true     # R3M expects ImageNet normalization
+
+# EMA for stable training
+ema:
+  _target_: maniflow.model.diffusion.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+
+# DataLoader configuration
+dataloader:
+  batch_size: 64
+  num_workers: 0  # Set to 0 to avoid deadlock with random access in __getitem__
+  shuffle: true
+  pin_memory: true
+  persistent_workers: false  # Must be false when num_workers=0
+
+val_dataloader:
+  batch_size: 64
+  num_workers: 0  # Set to 0 to avoid deadlock
+  shuffle: false
+  pin_memory: true
+  persistent_workers: false
+
+# Optimizer
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1.0e-4
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  weight_decay: 1.0e-3
+
+# Training configuration
+training:
+  device: "cuda:0"
+  seed: 42
+  debug: false
+  resume: true
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 501
+  gradient_accumulate_every: 1
+  use_ema: true
+  rollout_every: 100
+  checkpoint_every: 50
+  val_every: 10
+  sample_every: 5
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+
+# Logging (Weights & Biases)
+logging:
+  group: ${exp_name}
+  id: null
+  mode: disabled
+  name: ${training.seed}
+  project: ManiFlow_RoboTwin2_Overlay
+  resume: true
+  tags:
+    - robotwin2
+    - overlay
+    - hamster
+    - single_arm
+    - zarr
+
+# Checkpoint configuration
+checkpoint:
+  save_ckpt: true
+  topk:
+    monitor_key: val_loss
+    mode: min
+    k: 3
+    format_str: 'epoch={epoch:04d}-val_loss={val_loss:.6f}.ckpt'
+  save_last_ckpt: true
+  save_last_snapshot: false
+
+# Output directory
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}

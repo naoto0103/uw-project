@@ -1,0 +1,659 @@
+ManiFlow: A General Robot Manipulation Policy
+via Consistency Flow Training
+Ge Yan1 Jiyue Zhu2∗ Yuquan Deng1∗
+Shiqi Yang2 Ri-Zhao Qiu2 Xuxin Cheng2 Marius Memmel1
+Ranjay Krishna1,4† Ankit Goyal3† Xiaolong Wang2† Dieter Fox1,3,4†
+1University of Washington 2UC San Diego 3Nvidia 4Allen Institute for Artifical Intelligence
+∗Equal Contribution †Equal Advising
+MANIFLOW-POLICY.GITHUB.IO
+Figure 1: We introduce ManiFlow, a flow matching model excelling in complex manipulation tasks,
+including bimanual dexterous manipulation. a: Robot autonomously pours water. b-d: Robot grasps
+diverse objects and placing them into containers. e: Passing a bottle from one hand to the other.
+Abstract: This paper introduces ManiFlow, a visuomotor imitation learning pol-
+icy for general robot manipulation that generates precise, high-dimensional ac-
+tions conditioned on diverse visual, language and proprioceptive inputs. We lever-
+age flow matching with consistency training to enable high-quality dexterous ac-
+tion generation in just 1-2 inference steps. To handle diverse input modalities
+efficiently, we propose DiT-X, a diffusion transformer architecture with adap-
+tive cross-attention and AdaLN-Zero conditioning that enables fine-grained fea-
+ture interactions between action tokens and multi-modal observations. ManiFlow
+demonstrates consistent improvements across diverse simulation benchmarks and
+nearly doubles success rates on real-world tasks across single-arm, bimanual, and
+humanoid robot setups with increasing dexterity. The extensive evaluation further
+demonstrates the strong robustness and generalizability of ManiFlow to novel ob-
+jects and background changes, and highlights its strong scaling capability with
+larger-scale datasets. Our website: maniflow-policy.github.io .
+1 Introduction
+The ability to reliably predict precise and dexterous actions in unstructured environments represents
+a fundamental challenge in robot learning. Recent advances in diffusion-based policy learning [1]
+have significantly enhanced robot capabilities in modeling high-dimensional and multi-modal action
+distributions. More recently, flow matching [2], an alternative generative modeling approach, has
+demonstrated improved performance and training efficiency in policy learning [3, 4] compared to
+diffusion-based approaches. In spite of these advances, existing flow matching policies [3, 4, 5, 6]
+are still limited in efficiency, robustness, and generalizability when performing complex dexterous
+manipulation tasks in real-world environments. They face challenges in capturing the full complex-
+ity of multi-fingered interactions, maintaining temporal coherence across action sequences, gen-
+eralizing to unseen scenarios, and architectural constraints that insufficiently model multiple data
+sources inherent in various real-world tasks (e.g., visual, language, proprioception, etc.).
+To tackle these challenges, we introduce ManiFlow, a visuomotor imitation model designed to learn
+robust and generalizable manipulation skills for complex real-world tasks with high dexterity. Man-
+iFlow significantly improves previous flow matching policies [6] through two key contributions.
+First, we incorporate a consistency training objective into the standard flow matching loss to encour-
+age a more consistent mapping from noisy samples to the target distribution, effectively “straighten-
+ing” the flow path. As our experiments show, ManiFlow can generate accurate and dexterous actions
+in fewer inference steps. In contrast to previous efforts to reduce inference steps [7], ManiFlow does
+not rely on any pretrained teacher model, demonstrating better training efficiency. Second, we de-
+mystify the significance of different time sampling choices with valuable insights and baselines for
+the flow matching model through comprehensive ablations, indicating the advantage of beta and
+continuous-time sampling for flow matching and consistency training, as shown in Tab. 3.
+Beyond the consistency flow training process, ManiFlow also improves the model architecture to
+handle diverse input modalities more effectively with an expressive transformer architecture DiT-X.
+The DiT-X block builds on the DiT block in image generation [8] with more effective AdaLN-Zero
+conditioning for policy learning. Specifically, we use cross-attention layers for high-dimensional
+visual and language input, with AdaLN-Zero conditioning for low-dimensional inputs like timestep.
+The learned scale and shift parameters from AdaLN-Zero conditioning are used to adjust the cross-
+attention input and output features in a selective manner, allowing more efficient and flexible con-
+ditioning of multimodal inputs. Our experiments show that simple yet effective modifications, such
+as applying AdaLN-Zero conditioning to the cross-attention layers for more adaptive conditioning,
+significantly improve policy performance compared to previous work, such as MDT [9].
+We conduct evaluations across two setups: (1) simulation: 12 tasks in 3 dexterous benchmarks in
+single-task settings, 48 language-conditioned tasks in multi-task settings, and 4 bimanual dexterous
+tasks for robustness and generalization test in single-task settings. (2) real-world: 8 challenging
+tasks across three robot setups with increasing dexterity, including single-arm, bimanual, and hu-
+manoid dexterous tasks. We find that ManiFlow consistently improves over diffusion and flow
+matching policies, both in image-based 2D and pointcloud-based 3D settings. Specifically, Mani-
+Flow achieves an improvement of 45.6% and 11.0% in 12 dexterous tasks with image and pointcloud
+input, respectively. It further achieves 31.4% improvement in the multi-task setting. Notably, Man-
+iFlow achieves 58% improvement over the π0 model on 4 robustness test tasks and shows superior
+scaling capability. Finally, ManiFlow more than doubles the success rate of 3D Diffusion Policy [10]
+across 8 real-world tasks. The key contributions of ManiFlow are three-fold:
+• High-quality and efficient action generation: ManiFlow jointly optimizes flow matching with
+a continuous-time consistency training objective to enforce self-consistency and straightness on
+learned flow trajectories. This method allows the policy to generate high-dimensional, dexterous
+actions with high quality using only a few denoising steps, allowing faster inference speed.
+• Efficient multi-modal conditioning: ManiFlow incorporates DiT-X, a transformer architecture
+that enhances multi-modal conditioning through adaptive cross-attention layers with learned scale
+and shift parameters. This enables selective feature modulation across different input modalities.
+• Real-world robustness and generalizability: We evaluate ManiFlow on 3 robot setups with in-
+creasing dexterity, including challenging bimanual and humanoid dexterous manipulation tasks.
+ManiFlow consistently shows superior robustness in modeling complex dexterous behavior from
+limited human demonstrations and significantly improves generalization capability to diverse
+novel objects and environmental variations.
+2
+Action Sequence
+…
+ODE Solving
+Visual
+Encoder
+DiT-X Transformer
+Flow
+Matching
++
+Consistency
+Training
+… …
+…
+Joint Optimization
+Dexterous Teleoperation Data
+Lang Tokens
+Proprio
+Visual Tokens Noisy Action
+Figure 2: Policy Architecture of ManiFlow. Our system processes 2D or 3D visual observations,
+robot state, or language as inputs and outputs a sequence of actions. We leverage a DiT-X trans-
+former architecture to efficiently optimize a flow matching model with a continuous-time consis-
+tency training objective, ensuring high-quality action generation for challenging dexterous tasks.
+2 Method
+Preliminaries: Flow Matching
+We follow [11] to define the flow ODE forward process as straight paths between the data distribu-
+tion and noise. Given a data point x1 ∼D, a noise point x0 ∼N(0,I) and timestep t ∼U[0,1],
+we define xt as a linear interpolation between x0 and x1, i.e xt = (1−t) x0 + tx1, and the velocity
+vt as the direction from noise to data point: vt = x1−x0.The flow model θis optimized to predict
+the velocity given a noisy sample xt at time point t. The flow matching loss LFM(θ) is defined as:
+LFM(θ) = Ex0 ,x1 ∼D[∥vθ(xt,t)−(x1−x0)∥2] (1)
+2.1 ManiFlow Training
+ManiFlow goes beyond the basic flow matching model by incorporating a continuous-time consis-
+tency training objective and improved time-space sampling strategies, as outlined below.
+Continuous-time Consistency Training
+Compared with standard diffusion and flow matching models that require many denoising steps
+during inference [1, 4], consistency training [12] provides an elegant approach to improve gener-
+ation quality and achieve few-step generation without relying on pre-trained teacher models. The
+key insight is enforcing the consistency of partially-noisy data points along an ordinary differential
+equation (ODE) trajectory to the final target data points. We leverage this principle to jointly opti-
+mize the flow matching model with a consistency training objective to enhance the consistency of
+learned flows and thus generate high-quality action trajectories, as shown in the Fig. 3.
+Similar to Shortcut Model [13], we add another argument ∆tto the flow model vt(xt,t,∆t), where
+∆treflects the step size towards the next target point. We sample a timestep tfrom the discretized
+[0,1] interval and a step size ∆tfrom U[0,1]. We define the next timestep t1 as t+∆t, ensuring that
+it is bounded in [0,1] via clipping. The velocity vt1 at point xt1 toward a further timestep t2 set as
+t1 +∆t′is predicted as vθ− (xt1 ,t1,∆t′) where θ−is the exponential moving average (EMA) of the
+flow model. To enforce consistency between points xt and xt1 , we first approximate the target data
+point˜
+x1 = xt1 + (1−t1)·vt1 . We then further estimate the average velocity target˜
+vtarget from point
+xt to˜
+x1 as˜
+vtarget = (˜ x1−xt) / (1−t). We enforce consistency by constraining the flow model to
+predict this estimated velocity target, with the consistency loss LCT:
+LCT(θ) = Et,∆t∼U[0,1] ∥vθ(xt,t,∆t)−
+˜
+vtarget∥2 (2)
+We combine flow matching LFM and consistency training losses LCT in ManiFlow training: L(θ) =
+E[∥vθ(xt,t,0)−(x1−x0)∥2 + ∥vθ(xt,t,∆t)−
+˜
+vtarget∥2], where the third argument (∆t) in the flow
+model is set as 0 for the LFM as it estimates local instant velocity [13]. Note that, unlike consistency
+training [12] that operates in discrete time step size ∆t, we sample ∆tfrom a continuous distribution
+3
+Noisy Actions Target Actions
+𝚫𝒕 𝚫𝒕′
+𝒗𝜽 𝒙𝒕 , 𝒕, 𝚫𝒕
+(𝒙𝒕, 𝒕)
+(𝒙𝟎, 𝟎) (𝒙𝒕𝟏, 𝒕𝟏)
+𝒗𝜽 𝒙𝒕𝟏 , 𝒕𝟏 , 𝚫𝒕′
+(𝒙𝒕𝟐, 𝒕𝟐)
+t = 0 (𝒙𝟏, 𝟏)
+t = 1
+Flow Consistency
+Figure 3: ManiFlow Consistency Training. Given a flow path that smoothly transforms action
+to noise, we sample multiple intermediate points via linear interpolation (e.g., xt, xt1 , and xt2 ).
+During training, we learn to map any intermediate point on the flow trajectory back to its origin x1
+and ensure the self-consistency of sampled points on the same trajectory.
+to remove the undesirable bias associated with discrete-time objectives and ensure more flexible
+generation. The EMA model provides essential stabilization [12], with more details in the appendix.
+Time Space Sampling Strategy
+Time scheduling in generative models significantly impacts learning dynamics and final perfor-
+mance. We evaluate five representative timestep tsampling strategies in flow matching as denoted in
+Eq. 1 with visualization and pseudo-code in Fig. 14 and Alg. 1: (1) Uniform sampling [11], which
+draws timesteps uniformly from [0,1] and serves as a straightforward baseline; (2) Logit-normal
+sampling (lognorm) [14], which emphasizes intermediate timesteps through a logit-normal distri-
+bution with tunable location and scale parameters; (3) Mode sampling [15], which allows explicit
+control over whether to favor midpoint or endpoints during training through a scale parameter s; (4)
+CosMap sampling [16], which adapts the cosine schedule from diffusion models to the flow match-
+ing setting through a specialized mapping function; and (5) Beta distribution sampling [17], which
+places more weight on lower timesteps corresponding to noisier actions, with a cutoff threshold
+s= 0.999 to avoid sampling timesteps that contribute minimal learning value. As we find in Tab. 3,
+while lognorm sampling shows strong performance, the beta distribution’s focus on the high-noise
+regime proves particularly effective for robotic control tasks, outperforming other scheduling strate-
+gies across diverse manipulation scenarios. We further ablate the step size choice ∆tin consistency
+training, denoted in Eq. 2, and continuous time shows improved performance as shown in Tab. 3.
+2.2 Perception
+Our 3D visual encoder builds upon [10] while introducing a key modification to prioritize the preser-
+vation of fine-grained geometric information in 3D point cloud representations. The key insight is
+that maintaining detailed spatial relationships throughout the encoding process is crucial for precise
+manipulation tasks. While previous works like [10] used max pooling operations to compress point
+cloud features into a compact representation, we found this compression can lead to loss of important
+geometric details. Our architecture deliberately avoids such pooling operations, instead preserving
+point-wise features throughout the network. This design choice allows the encoder to maintain richer
+spatial relationships and detailed geometric information of the input point cloud, which we found
+particularly beneficial for tasks requiring precise object interaction and spatial reasoning.
+Empirical observations show that scene configuration significantly impacts the optimal point den-
+sity for representation efficiency. In well-calibrated scenes with cropped points, ManiFlow achieves
+strong performance with sparse point clouds of 128 points, demonstrating the efficiency of the net-
+work. For uncalibrated egocentric views, denser representations of 4096 points are sufficient, sug-
+4
+𝜶𝟐
+𝜸𝟐 , 𝜷𝟐
+𝜶𝟐
+𝜸𝟐 , 𝜷𝟐
+𝜶𝟏
+𝜸𝟏 , 𝜷𝟏
+AdaLN-Zero
+MLP
+Conditioning
+Timestep 𝒕
+𝜶𝟑
+𝜸𝟑 , 𝜷𝟑
+𝜶𝟐
+𝜸𝟐 , 𝜷𝟐
+𝜶𝟏
+𝜸𝟏 , 𝜷𝟏
+AdaLN-Zero
+MLP
+Conditioning
+Timestep 𝒕 & ∆𝒕
++
+Scale
++
+Pointwise
+Feedforward
+Scale
+Scale, Shift
+Pointwise
+Feedforward
++
++
+Scale, Shift
+Scale
+Scale
+Pointwise
+Feedforward
++
+Adaptive Cross-
+Attention
+Scale, Shift
+Cross-
+Attention
+Scale, Shift
++
++
++
+Scale
+Scale
+Scale
+Self-Attention
+Self-Attention
+Self-Attention
+Scale, Shift
+Scale, Shift
+Scale, Shift
+Action Tokens
+Input Tokens
+Action Tokens
+Input Tokens
+Action Tokens
+DiT
+MDT
+DiT-X
+Figure 4: DiT-X Block. Unlike DiT (self-attention only) and MDT (basic cross-attention), DiT-X
+applies AdaLN-Zero conditioning to low-dimensional robot state inputs, and adjusts cross-attention
+input and output with learned scaling and shift parameters, ensuring adaptive and fine-grained fea-
+ture interactions between action tokens and multi-modal input tokens. This design enables efficient
+handling of both low-dimensional control signals and high-dimensional perceptual inputs.
+AdaLN-Zero
+MLP
+Conditioning
+Timestep 𝒕
+&
+Obs emb
+𝜶𝟏
+𝜸𝟏 , 𝜷𝟏
+gesting the benefit of increased point density in less structured environments. Note that proper color
+augmentation is helpful for optimal results without overfitting, as elaborated in the appendix.
+2.3 ManiFlow Policy Architecture
+For the lack of adaptive conditioning in standard cross-attention mechanisms (e.g., MDT [9]), we
+introduce DiT-X, a transformer architecture that effectively processes low-dimensional signals and
+high-dimensional multi-modal inputs for general robotic control. Our design is motivated by the
+inherent challenges in generative models for handling diverse input modalities: low-dimensional
+signals require precise encoding of high-frequency dynamics, visual inputs contain rich spatial-
+semantic information, and language instructions introduce fine-grained language understanding. We
+follow the principles below to design an expressive architecture for multi-modality conditioning.
+Adaptability & Granularity: Being capable of generating highly adaptive actions is essential for
+robot manipulation in a dynamic environment, requiring a reactive adjustment with precision. Ad-
+ditionally, the integration of high-dimensional visual and language features with low-dimensional
+signal demands fine-grained understanding and adaptive interaction collectively. We address this
+through a dedicated adaptive cross-attention mechanism that enables direct token-level interactions
+between actions and multi-modal inputs, facilitating precise spatial and semantic alignment.
+DiT-X block with Adaptive Cross-attention Conditioning: We
+introduce adaptive cross-attention layers to process visual and lan-
+guage tokens with low-dimensional input. Specifically, given low-
+dimensional inputs like timesteps, we employ AdaLN-Zero con-
+ditioning [8] to generate conditioning scale and shift parameters
+(α,γ,β) for dynamic adaptation of network behavior while ensur-
+ing stable training through zero initialization. In particular, instead
+of only applying scale and shift parameters to self-attention and
+feedforward layers, we also adjust the input and output of cross-
+attention layers with the same modulation. This design empowers
+the network to manipulate fine-grained visual and language tokens
+Figure 5: Training action error
+by scaling them down or up in a selective manner, which is crucial
+and success rate of DiT-X vs w/o
+for tasks requiring a precise understanding of visual cues and lan-
+cross-attention AdaLN-zero con-
+ditioning in 10 Metaworld tasks
+guage instructions. While this introduces a modest computational
+with language conditioning.
+overhead, the enhanced representational capability proves valuable for complex manipulation tasks.
+5
+Table 1: Main Simulation Results. Success rates on 12 dexterous tasks in 3 benchmarks. ManiFlow
+achieves superior performance on both image and point cloud-based inputs.
+Algorithm \Task Obs. RoboTwin 5 tasks Adroit 3 tasks DexArt 4 tasks Average
+Diffusion Policy Img 28.8±2.3 38.1±2.9 53.6±2.1 39.4±2.3
+Flow Matching Policy Img 27.1±2.7 39.0±2.2 53.3±2.4 38.8±2.5
+2D ManiFlow Policy Img 46.1±2.7 74.3±1.9 56.3±2.3 56.5±2.4
+3D Diffusion Policy PC 42.7±3.3 77.8±2.4 60.6±0.7 57.4±2.2
+3D Flow Matching Policy* PC 48.1±6.3 77.1±3.3 61.7±1.1 59.9±2.8
+3D ManiFlow Policy PC 61.9±2.5 78.6±2.3 63.2±2.7 66.5±2.5
+Figure 6: Comparison on language-conditioned multi-task learning on 48 MetaWorld tasks.
+ManiFlow achieves superior performance across all difficulty levels compared to the 3D diffusion
+and flow matching policy, with an average 31.4% and 34.9% relative improvement.
+As shown in Fig. 5, the DiT-X block shows faster convergence during training and better perfor-
+mance than w/o cross-attention AdaLN-Zero conditioning. Furthermore, we provide a detailed il-
+lustration of the evolving DiT and MDT architecture baselines in Fig. 4. Our architecture provides
+greater expressiveness than the DiT and MDT blocks on multi-modality conditioning in Fig. 13.
+3 Experiments
+3.1 Simulation Experiments
+Benchmarks: We select three diverse dexterous manipulation benchmarks (Adroit [18], Dexart
+[19], and RoboTwin 1.0 [20] to comprehensively evaluate ManiFlow in 12 dexterous tasks that
+assess a wide spectrum of manipulation capabilities. Furthermore, with the MetaWorld benchmark
+[21] comprising 48 tasks, we specifically focus on the challenging language-conditioned multi-task
+learning scenario to provide a comprehensive assessment of model performance when conditioning
+on visual and language input. We further use the RoboTwin 2.0 benchmark [22] to fully test the
+policy robustness and generalizability. More details are provided in the appendix.
+Baselines: For 2D image inputs, we compare ManiFlow with diffusion policy [1] and flow matching
+policy [6] with the same ResNet-18 encoder [23]. For 3D pointcloud-based methods, we primarily
+compare against 3D Diffusion Policy (DP3) [10], which has demonstrated superior performance over
+2D Diffusion Policy across various simulation environments. Since the flow matching policy [6] is
+only image-based in the original paper, we add the same 3D encoder from [10] to it in order to get
+a baseline for the 3D-based flow matching model, denoted as 3D Flow Matching Policy*. For the
+robustness test and scaling experiment on the RoboTwin 2.0 benchmark, we compare with the π0
+model, which takes multi-view images as input and is fine-tuned on the domain randomized data.
+3.2 Key Findings
+As shown in Tab. 1, ManiFlow outperforms both 2D image and 3D point cloud-based diffusion and
+flow matching policies on all 3 dexterous benchmarks, with an average 43.4% and 45.6% improve-
+ment on 2D input, and 15.9% and 11.0% improvement on 3D input. ManiFlow further achieves
+78.1% success rate in language-conditioned multi-task learning on 48 MetaWorld tasks, demon-
+strating 31.4% and 34.9% improvement (see Fig. 6). Notably, ManiFlow achieves 58% improvement
+6
+(a) (b)
+Figure 7: (a) Efficiency & Generalization. We evaluate ManiFlow and π0 with 4 bimanual tasks
+on RoboTwin 2.0 benchmark (Fig. 8), after training with 50 domain randomized demonstrations per
+task. Compared to the large-scale pre-trained π0 model, ManiFlow shows superior learning effi-
+ciency and generalization capability to novel objects and backgrounds, while learning from scratch
+with pointcloud input. (b) Scaling Behavior. Results show the scaling performance on the task ”lift
+pot” with demonstration numbers varying from 10 to 500. ManiFlow consistently outperforms π0
+on both the low data regime and final scaling to 500 demos, achieving 99.7% success eventually.
+Lift Pot Pick Dual Bottles Put Object Cabinet Open Laptop
+Figure 8: Visualization of Domain Randomized Evaluation. To fully test the robustness and
+generalizability of our policy, we evaluate both ManiFlow and π0 on the RoboTwin 2.0 benchmark
+with challenging domain randomizations, including cluttered scenes with random distractors, novel
+objects and diverse background textures, various lighting conditions, and table height changes.
+over the π0 model on 4 bimanual tasks with point cloud input, also demonstrating superior scaling
+capability. We discuss the key takeaways below and provide further ablations in the appendix.
+High-quality action generation. Dexterous manipulation poses a significant challenge in the
+model’s ability to capture high-dimensional behaviors. We observe that ManiFlow consistently
+achieves higher success rates compared to the 3D diffusion and flow matching policy. This per-
+formance advantage is clearly demonstrated in the most challenging bimanual dexterous tasks in the
+RoboTwin 1.0 benchmark, where ManiFlow achieves a success rate of 61.9% with only 50 demon-
+strations, while DP3 achieves 42.7% success rate (see Tab. 1). The performance gap is particularly
+notable given the challenging nature of bimanual coordination.
+Robust visual and language conditioning. ManiFlow demonstrates better visual conditioning ca-
+pability than diffusion and flow matching policies for both 2D and 3D visual input. Notably, for
+the Adroit 3 tasks in Tab. 1, 2D ManiFlow achieves 73.2% success rate, while both 2D baselines
+struggle in this benchmark. Additionally, for language conditioning, we evaluate against 3D-based
+baselines on 48 MetaWorld tasks with multi-task learning in Fig. 6. ManiFlow outperforms 3D dif-
+7
+Humanoid Bimanual Single Arm
+Humanoid Egocentric View Bimanual Front View
+RGB
+Point Cloud
+Humanoid Pour Water Humanoid Pick & Place Bimanual Pour Water Bimanual Handover
+Figure 9: Real-Robot Results: (Top) We test 8 real-robot tasks across 3 robot platforms, including
+Franka with gripper, bimanual xArm with ability hands, and Unitree H1 humanoid with bimanual
+anthropomorphic hands. ManiFlow succeeds 69.6% on average, almost doubling DP3’s perfor-
+mance. Visualizations: (Bottom) 3D point cloud visualizations of sampled 4 real robot tasks.
+fusion and flow matching baselines on all task difficulty levels by a large margin: 31.4% and 34.9%
+relative improvement on average, and notable 125% and 73.6% on the very hard tasks.
+Enhanced performance through DiT-X architecture. Our experimental results on 10 language-
+conditioned MetaWorld tasks demonstrate the significant advantages of ManiFlow’s DiT-X block
+over the DiT and MDT architectures. As shown in Fig. 13, DiT-X achieves faster learning and bet-
+ter final performance on various tasks. DiT-X’s adaptive cross-attention AdaLN-Zero conditioning
+mechanism enables more fine-grained interactions between visual features, language instructions,
+and action sequences, which is crucial for language-conditioned tasks where success depends on a
+precise understanding of both visual cues and natural language commands.
+Learning Efficiency & Generalization. As demonstrated in Fig. 7(a), ManiFlow achieves superior
+learning efficiency compared to the fine-tuned π0 model across 4 challenging bimanual dexterous
+tasks on the RoboTwin 2.0 benchmark. Training from scratch with only 50 domain randomized
+demonstrations per task, ManiFlow substantially outperforms π0: 64.7% vs 24.3% on Lift Pot,
+55.5% vs 18.0% on Pick Dual Bottles, 55.0% vs 41.0% on Put Object Cabinet, and 66.7% vs
+70.0% on Open Laptop, achieving 58% relative improvement on average. Beyond learning effi-
+ciency, ManiFlow demonstrates robust generalization to environmental variations including novel
+objects, diverse backgrounds, cluttered scenes with distractors, and varying lighting conditions as
+shown in Fig. 8. This combination of efficiency and generalization capability suggests that Man-
+iFlow effectively learns robust and generalizable manipulation skills from limited demonstrations,
+outperforming even large-scale pre-trained models in challenging unseen scenarios.
+ManiFlow Scaling Behavior. ManiFlow exhibits strong scaling capability across different data
+regimes, as shown on the lift pot task in Fig. 7(b). Starting from comparable performance at 10
+demonstrations (∼10% for both methods), ManiFlow shows a clear performance advantage in the
+low-data regime: achieving 64.7% success rate at 50 demonstrations compared to π0’s 24.3%, and
+quickly reaching∼90% success with 100 demonstrations while π0 achieves 60.3%. Notably, Man-
+iFlow demonstrates better data scaling behavior by achieving 97.7% success with 200 demonstra-
+tions, while π0 requires 500 demonstrations to reach 94.0%, still below ManiFlow’s 200-demo per-
+formance. ManiFlow continues to improve to 99.7% at 500 demos. The consistent upward scaling
+8
+Pouring Grasp & Place
+Stereo Camera
+Egocentric View
+Chip tube Pepsi bottle
+Yellow White
+(a) Egocentric Perception (b) Novel Objects (c) Novel Backgrounds
+Fail to grasp the block first time
+Retry and succeed
+Grasp toy with distractors Change distractors with new
+spatial arrangements Add novel toys Place multiple toys
+sequentially
+✕
+✓
+(d) Failure Recovery (e) Perturbations
+Figure 10: Real World Robustness. We test the policy robustness with varying perturbations during
+real-world deployment, such as different egocentric viewpoints, novel objects and backgrounds,
+recovering from failure, and adding diverse distractors with human perturbed locations. ManiFlow
+is robust against these perturbations with limited data. Please check our website for more details.
+trajectory indicates that ManiFlow leverages larger scale demonstration data more effectively than
+π0, suggesting better scaling properties for learning complex dexterous behaviors with more data.
+ManiFlow excels in few-step inference. Due to the costly iterative denoising steps, few-step in-
+ference is essential for sufficiently fast policy generation in the real world. As shown in Tab. 4 in
+the appendix, ManiFlow achieves 63.7% and 64.5% success rate using only 1 and 2 inference steps,
+respectively, compared to 3D Diffusion and Flow Matching Policies using 10 inference steps to
+achieve 42.7% and 48.1% success rate on 5 bimanual dexterous tasks in the RoboTwin benchmark.
+3.3 Real World Experiments
+We evaluate ManiFlow on 8 real-robot tasks across 3 robot setups with increasing dexterity (see
+Fig. 9 and Tab. 2). Each setup is evaluated on a unique set of tasks designed to assess ManiFlow’s
+capabilities across diverse scenarios. We provide an overview of the robot setups in Fig. 16 and
+task visualizations in the appendix. We compare ManiFlow against DP3, the previous state-of-
+the-art dexterous manipulation policy. Both ManiFlow and DP3 take point clouds as visual input.
+As can be seen, ManiFlow consistently outperforms DP3 by a significant margin: 88.8% relative
+improvement for in-distribution environment configurations and 116.7% on unseen objects, leading
+to 98.3% relative improvement on average.
+High Dexterity: As shown in Tab. 2, ManiFlow excels in tasks requiring high dexterity, particularly
+evident in its performance with anthropomorphic hands on the Unitree H1 humanoid and bimanual
+setups. ManiFlow demonstrates strong capability in tasks such as pouring, where it must precisely
+control multi-finger positions to grasp the bottle without missing and aligning the bottle opening
+with the cup carefully, showing improved success rate from 20% to 65% on the humanoid platform.
+The additional complexity of bimanual coordination, requiring synchronization between two inde-
+pendent dexterous hands, further highlights ManiFlow’s superiority. As shown in the handover task
+that requires the left hand to grasp the bottle first and hand it to the right hand, ManiFlow succeeds
+on 22 out of 30 runs (73% success rate) compared to DP3’s success on 14 out of 30 runs (47%).
+Generalization: ManiFlow is able to handle unseen object types and geometries (e.g., varying bottle
+heights, appearances, and shapes) along with changes in the environment without any significant
+drop in performance (see Tab. 2). On the other hand, DP3 often halted mid-motion or failed to
+recognize and adapt to new objects during task execution. This inability to handle unfamiliar objects
+was particularly evident when DP3 was tasked with manipulating unseen objects in the Toy Grasping
+tasks. In contrast, our method was able to adapt to novel objects and successfully executed the tasks
+with minimal disruption. Furthermore, ManiFlow demonstrated robustness to changes in the scene,
+such as distractor objects, cluttered environments, and varying backgrounds. On the other hand, in
+tasks like Toy Grasping with randomly placed distractors, DP3 showed a tendency to overfit to the
+specific end-effector trajectories seen during training.
+9
+Table 2: Detailed Comparison of DP3 and ManiFlow on 8 real robot tasks across 3 robot platforms
+Real Robot Setup Task In Distribution Unseen Objects
+DP3 ManiFlow DP3 ManiFlow
+Humanoid Grasp & Place Pouring 7/40 23/40 4/20 13/20 3/20 12/20
+2/20 12/20
+Bimanual
+Handover Pouring Toy Grasping Sorting 14/30 22/30 21/40 30/40 17/50 37/50 7/10 8/10 9/20 12/20
+12/20 15/20
+7/30 20/30
+5/10 7/10
+Single-Arm Cap Hanging Pouring 4/10 7/10 5/10 9/10 2/5 4/5
+2/10 9/10
+Average Success Rate 37.6% 71.0% 31.1% 67.4%
+4 Related Work
+Generative Models for Policy Learning: Diffusion models, a family of generative models that
+iteratively transform random noise into a data sample, have achieved great success in generating
+high-resolution images and videos. Owning to this impressive success, they have also been applied
+in various robotics domains. Notably, Diffusion Policies [1] have been effective in modeling multi-
+modal action distributions. Building on them, Consistency Policies [7] used a pre-trained diffusion
+model to distill a student model. By using this two-stage pipeline, they demonstrated faster inference
+with fewer denoising steps. Recently, flow matching has demonstrated improved performance and
+training efficiency in policy learning [6, 3]. However, these methods still face limitations in modeling
+more complex and high-dimensional dexterous behaviors. We improve upon the flow matching
+model by using a consistency training objective. ManiFlow shows strong capability in generating
+high-quality actions with only a few inference steps, demonstrating both robustness and efficiency
+in challenging dexterous tasks. Notably, ManiFlow can be trained end-to-end in a single run without
+requiring an additional teacher model, unlike other methods [7, 24, 25] that typically require pre-
+training models for teacher-student distillation or multiple training stages for inference acceleration,
+making them computationally expensive and more cumbersome to work with.
+Visual Imitation Learning. Prior works have shown that visual observations are essential for
+robots to have an accurate understanding of the environment. While 2D image-based imitation
+learning policies have been widely adopted due to the simplicity and easy access of RGB images,
+policies that take in 3D input have demonstrated better performance and generalizability. Recent
+works [26, 27, 28, 29, 30, 31] have shown success in leveraging 3D data for manipulation tasks.
+However, these methods are typically restricted to low-dimensional 6-DoF end-effector control with
+coarse temporal keypoints prediction. Hence, they are not suitable for highly dynamic and dexter-
+ous tasks. Beyond these methods, 3D Diffuser Actor [32] can predict continuous dense actions, but
+is still restricted to 6-DoF end-effector control and not applicable for high-dimensional dexterous
+manipulation. 3D Diffusion Policy [10] leverages an efficient 3D encoder and achieves superior
+performance for dexterous tasks. Compared to this line of works, we aim to develop a general robot
+policy that is capable of learning robust manipulation skills from either 2D or 3D observations.
+Architecture for Multi-modality Conditioning Recent advancements in robotic manipulation have
+leveraged data from different modalities to improve robustness and sample efficiency in complex
+real-world environments. Prior works have developed a high-capacity diffusion transformer (DiT)
+[33] and applied it to manipulation tasks [34], demonstrating better visual conditioning compared
+to traditional transformer architecture. A related work MDT [9] showed improved performance by
+incorporating cross-attention layers to fuse multimodal conditioning information. ManiFlow builds
+upon these prior works and improves them further through the DiT-X block. We add a simple yet
+effective modification: introducing the AdaLN-Zero conditioning to the cross-attention layer with
+learned scaling and shift parameters to better manipulate the conditioned network’s features in a
+selective manner, allowing more flexible and efficient multimodal conditioning.
+10
+5 Conclusion
+In this work, we introduce ManiFlow, a robust and efficient dexterous manipulation model. Man-
+iFlow improves upon prior flow matching policies by introducing a continuous-time consistency
+training objective, a superior time sampling strategy, and a novel DiT-X block. The proposed DiT-X
+architecture effectively handles diverse input modalities through its dual conditioning mechanisms,
+enabling strong performance across varied manipulation tasks. Our comprehensive evaluation span-
+ning 64 simulation tasks and 8 real-world scenarios demonstrates ManiFlow’s effectiveness, particu-
+larly in challenging real-world bimanual dexterous manipulation, where it achieves a 98.3% relative
+improvement over existing approaches.
+6 Limitation
+While ManiFlow demonstrates strong performance across diverse manipulation tasks, there are sev-
+eral promising avenues for future work. The success in real-world robot tasks depends heavily on
+the quality and diversity of training demonstrations. Incorporating ManiFlow into a reinforcement
+learning framework could potentially reduce the burden on the demonstration data. Furthermore,
+while the design choices for ManiFlow are inspired by dexterous manipulation tasks, none of these
+are limited to robot manipulation, and we believe that ManiFlow could be equally beneficial for tasks
+such as navigation or mobile manipulation. Finally, we only scratched the surface of ManiFlow’s
+multi-modal capabilities, and the incorporation of further modalities such as tactile information or
+VLM-based conditioning via points, trajectories, or bounding boxes is an interesting extension.
+Acknowledgments
+Part of this work was funded by the Army Research Lab and award #W911NF-24-2-0191.
+References
+[1] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion
+policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics
+Research, page 02783649241273668, 2023.
+[2] Y. Lipman, R. T. Chen, H. Ben-Hamu, M. Nickel, and M. Le. Flow matching for generative
+modeling. ICLR, 2023.
+[3] E. Chisari, N. Heppert, M. Argus, T. Welschehold, T. Brox, and A. Valada. Learning robotic
+manipulation policies from point clouds with conditional flow matching. CoRL, 2024.
+[4] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman,
+B. Ichter, et al. π0: A vision-language-action flow model for general robot control, 2024. URL
+https://arxiv. org/abs/2410.24164.
+[5] M. Braun, N. Jaquier, L. Rozo, and T. Asfour. Riemannian flow matching policy for robot
+motion learning. In IROS, 2024.
+[6] F. Zhang and M. Gienger. Affordance-based robot manipulation with flow matching. arXiv
+preprint arXiv:2409.01083, 2024.
+[7] A. Prasad, K. Lin, J. Wu, L. Zhou, and J. Bohg. Consistency policy: Accelerated visuomotor
+policies via consistency distillation. RSS, 2024.
+[8] W. S. Peebles and S. Xie. Scalable diffusion models with transformers. 2023 ieee. In CVF
+International Conference on Computer Vision (ICCV), volume 4172, 2022.
+¨
+[9] M. Reuss,
+O. E. Ya˘ gmurlu, F. Wenzel, and R. Lioutikov. Multimodal diffusion transformer:
+Learning versatile behavior from multimodal goals. RSS, 2024.
+11
+[10] Y. Ze, G. Zhang, K. Zhang, C. Hu, M. Wang, and H. Xu. 3d diffusion policy. RSS, 2024.
+[11] X. Liu, C. Gong, and Q. Liu. Flow straight and fast: Learning to generate and transfer data
+with rectified flow. arXiv preprint arXiv:2209.03003, 2022.
+[12] Y. Song, P. Dhariwal, M. Chen, and I. Sutskever. Consistency models. arXiv preprint
+arXiv:2303.01469, 2023.
+[13] K. Frans, D. Hafner, S. Levine, and P. Abbeel. One step diffusion via shortcut models. ICLR,
+2025.
+[14] J. Atchison and S. M. Shen. Biometrika, 67(2):261–272, 1980.
+Logistic-normal distributions: Some properties and uses.
+[15] P. Esser, S. Kulal, A. Blattmann, R. Entezari, J. M¨ uller, H. Saini, Y. Levi, D. Lorenz, A. Sauer,
+F. Boesel, et al. Scaling rectified flow transformers for high-resolution image synthesis. In
+Forty-first International Conference on Machine Learning, 2024.
+[16] A. Q. Nichol and P. Dhariwal. Improved denoising diffusion probabilistic models. In Interna-
+tional conference on machine learning, pages 8162–8171. PMLR, 2021.
+[17] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman,
+B. Ichter, et al. A vision-language-action flow model for general robot control. arXiv preprint
+arXiv:2410.24164, 2024.
+[18] V. Kumar. Manipulators and Manipulation in high dimensional spaces. PhD thesis, Uni-
+versity of Washington, Seattle, 2016. URL https://digital.lib.washington.edu/
+researchworks/handle/1773/38104.
+[19] C. Bao, H. Xu, Y. Qin, and X. Wang. Dexart: Benchmarking generalizable dexterous manipu-
+lation with articulated objects. In CVPR, 2023.
+[20] Y. Mu, T. Chen, S. Peng, Z. Chen, Z. Gao, Y. Zou, L. Lin, Z. Xie, and P. Luo. Robotwin:
+Dual-arm robot benchmark with generative digital twins (early version). arXiv preprint
+arXiv:2409.02920, 2024.
+[21] T. Yu, D. Quillen, Z. He, R. Julian, K. Hausman, C. Finn, and S. Levine. Meta-world: A
+benchmark and evaluation for multi-task and meta reinforcement learning. In Conference on
+robot learning, pages 1094–1100. PMLR, 2020.
+[22] T. Chen, Z. Chen, B. Chen, Z. Cai, Y. Liu, Q. Liang, Z. Li, X. Lin, Y. Ge, Z. Gu, et al.
+Robotwin 2.0: A scalable data generator and benchmark with strong domain randomization
+for robust bimanual robotic manipulation. arXiv preprint arXiv:2506.18088, 2025.
+[23] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learning for image recognition. In CVPR,
+2016.
+[24] G. Lu, Z. Gao, T. Chen, W. Dai, Z. Wang, W. Ding, and Y. Tang. Manicm: Real-time 3d diffu-
+sion policy via consistency model for robotic manipulation. arXiv preprint arXiv:2406.01586,
+2024.
+[25] B. Jia, P. Ding, C. Cui, M. Sun, P. Qian, S. Huang, Z. Fan, and D. Wang. Score and distribution
+matching policy: Advanced accelerated visuomotor policies via matched distillation. arXiv
+preprint arXiv:2412.09265, 2024.
+[26] M. Shridhar, L. Manuelli, and D. Fox. Perceiver-actor: A multi-task transformer for robotic
+manipulation. In CoRL, 2023.
+[27] A. Goyal, J. Xu, Y. Guo, V. Blukis, Y.-W. Chao, and D. Fox. Rvt: Robotic view transformer
+for 3d object manipulation. In CoRL, 2023.
+12
+[28] A. Goyal, V. Blukis, J. Xu, Y. Guo, Y.-W. Chao, and D. Fox. Rvt-2: Learning precise manipu-
+lation from few demonstrations. RSS, 2024.
+[29] Y. Ze, G. Yan, Y.-H. Wu, A. Macaluso, Y. Ge, J. Ye, N. Hansen, L. E. Li, and X. Wang.
+Gnfactor: Multi-task real robot learning with generalizable neural feature fields. In CoRL,
+2023.
+[30] G. Yan, Y.-H. Wu, and X. Wang. Dnact: Diffusion guided multi-task 3d policy learning. arXiv
+preprint arXiv:2403.04115, 2024.
+[31] Y. Li, G. Yan, A. Macaluso, M. Ji, X. Zou, and X. Wang. Integrating lmm planners and 3d
+skill policies for generalizable manipulation. arXiv preprint arXiv:2501.18733, 2025.
+[32] T.-W. Ke, N. Gkanatsios, and K. Fragkiadaki. 3d diffuser actor: Policy diffusion with 3d scene
+representations. CoRL, 2024.
+[33] W. Peebles and S. Xie. Scalable diffusion models with transformers. In ICCV, 2023.
+[34] S. Dasari, O. Mees, S. Zhao, M. K. Srirama, and S. Levine. The ingredients for robotic diffu-
+sion transformers. arXiv preprint arXiv:2410.10088, 2024.
+[35] C. Chi, Z. Xu, C. Pan, E. Cousineau, B. Burchfiel, S. Feng, R. Tedrake, and S. Song. Universal
+manipulation interface: In-the-wild robot teaching without in-the-wild robots. arXiv preprint
+arXiv:2402.10329, 2024.
+[36] J. Wang, M. Chen, N. Karaev, A. Vedaldi, C. Rupprecht, and D. Novotny. Vggt: Visual ge-
+ometry grounded transformer. In Proceedings of the Computer Vision and Pattern Recognition
+Conference, pages 5294–5306, 2025.
+[37] J. Zhou, J. Wang, B. Ma, Y.-S. Liu, T. Huang, and X. Wang. Uni3d: Exploring unified 3d
+representation at scale. arXiv preprint arXiv:2310.06773, 2023.
+[38] L. Yang, Z. Zhang, Z. Zhang, X. Liu, M. Xu, W. Zhang, C. Meng, S. Ermon, and B. Cui.
+Consistency flow matching: Defining straight flows with velocity consistency. arXiv preprint
+arXiv:2407.02398, 2024.
+[39] J. Song, C. Meng, and S. Ermon. Denoising diffusion implicit models. ICLR, 2021.
+[40] X. Li, M. Liu, H. Zhang, C. Yu, J. Xu, H. Wu, C. Cheang, Y. Jing, W. Zhang, H. Liu,
+et al. Vision-language foundation models as effective robot imitators. arXiv preprint
+arXiv:2311.01378, 2023.
+[41] K. Black, M. Nakamoto, P. Atreya, H. Walke, C. Finn, A. Kumar, and S. Levine. Zero-
+shot robotic manipulation with pretrained image-editing diffusion models. arXiv preprint
+arXiv:2310.10639, 2023.
+[42] H. Wu, Y. Jing, C. Cheang, G. Chen, J. Xu, X. Li, M. Liu, H. Li, and T. Kong. Unleash-
+ing large-scale video generative pre-training for visual robot manipulation. arXiv preprint
+arXiv:2312.13139, 2023.
+[43] R. Ding, Y. Qin, J. Zhu, C. Jia, S. Yang, R. Yang, X. Qi, and X. Wang. Bunny-
+visionpro: Real-time bimanual dexterous teleoperation for imitation learning. arXiv preprint
+arXiv:2407.03162, 2024.
+[44] X. Cheng, J. Li, S. Yang, G. Yang, and X. Wang. Open-television: Teleoperation with immer-
+sive active visual feedback. CoRL, 2024.
+13
+A Policy Implementation Details
+DexArt Adroit
+RoboTwin
+Figure 11: Simulation Tasks Visualization. 12 dexterous manipulation tasks, including 4 DexArt
+tasks, 3 Adroit tasks, and 5 bimanual dexterous RoboTwin 1.0 tasks.
+Pick Apple with Messy Distractors
+Figure 12: Scaling Comparison. We evaluate 3D ManiFlow Policy and 3D Diffusion Policy across
+10 to 500 demos on the Pick Apple Messy task from the RoboTwin 1.0 benchmark. ManiFlow
+achieves a 79.0% success rate with 500 demonstrations using point cloud coordinates only, signif-
+icantly outperforming the diffusion baseline at 32.7%. Adding RGB information further improves
+performance to 92.3%, demonstrating superior data efficiency and scaling capability of ManiFlow.

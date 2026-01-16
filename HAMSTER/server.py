@@ -135,7 +135,8 @@ app = FastAPI(lifespan=lifespan)
 
 
 # Load model upon startup
-@app.post("/chat/completions")
+@app.post("/v1/chat/completions")
+@app.post("/chat/completions")  # Also support without /v1 prefix for backward compatibility
 async def chat_completions(request: ChatCompletionRequest):
     try:
         global model, tokenizer, image_processor, context_len
@@ -234,6 +235,8 @@ async def chat_completions(request: ChatCompletionRequest):
             "choices": [{"message": ChatMessage(role="assistant", content=resp_content)}],
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"error": str(e)},
@@ -256,4 +259,4 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=workers)
     app.args = parser.parse_args()
     print(app.args)
-    uvicorn.run(app, host=host, port=port, workers=workers)
+    uvicorn.run(app, host=app.args.host, port=app.args.port, workers=app.args.workers)

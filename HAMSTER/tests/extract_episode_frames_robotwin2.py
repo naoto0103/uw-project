@@ -18,14 +18,14 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 
 
-# RoboTwin 2.0 dataset location
-ROBOTWIN2_DATASET_DIR = Path("/home/naoto/HAMSTER-ManiFlow-Integration/ManiFlow/third_party/RoboTwin2.0/dataset")
+# RoboTwin 2.0 dataset location (Hyak HPC)
+ROBOTWIN2_DATASET_DIR = Path("/mmfs1/gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration/ManiFlow/third_party/RoboTwin2.0/dataset/dataset")
 
 # Default robot and config
 DEFAULT_ROBOT = "aloha-agilex"
 DEFAULT_CONFIG = "clean_50"
 
-# Selected tasks for Stage 3
+# Selected tasks for Stage 3 (original 6 tasks)
 SELECTED_TASKS = [
     "beat_block_hammer",
     "pick_diverse_bottles",
@@ -35,14 +35,40 @@ SELECTED_TASKS = [
     "hanging_mug",
 ]
 
+# Single-arm tasks (newly downloaded)
+SINGLE_ARM_TASKS = [
+    "lift_pot",
+    "open_laptop",
+    "put_object_cabinet",
+    "stack_blocks_two",
+    # Additional single-arm tasks (2024-12-04)
+    "click_bell",
+    "move_can_pot",
+    "place_object_stand",
+    "open_microwave",
+    "turn_switch",
+]
+
 # Task instructions for Qwen3 path generation
 TASK_INSTRUCTIONS = {
+    # Original bimanual tasks
     "beat_block_hammer": "Pick up the hammer and beat the block",
     "pick_diverse_bottles": "Pick up the bottles from the table",
     "pick_dual_bottles": "Pick up two bottles with both hands",
     "place_shoe": "Place the shoe on the target location",
     "place_empty_cup": "Place the empty cup on the target location",
     "hanging_mug": "Hang the mug on the hook",
+    # Single-arm tasks
+    "lift_pot": "Lift the pot from the table",
+    "open_laptop": "Open the laptop",
+    "put_object_cabinet": "Put the object into the cabinet",
+    "stack_blocks_two": "Stack two blocks on top of each other",
+    # Additional single-arm tasks (2024-12-04)
+    "click_bell": "click the <bell's top center> on the table",
+    "move_can_pot": "there is a can and a pot on the table, use one arm to <pick up the can> and <move it to beside the pot>",
+    "place_object_stand": "use appropriate arm to place the object on the stand",
+    "open_microwave": "Use one arm to open the microwave.",
+    "turn_switch": "use the robotic arm to click the switch",
 }
 
 
@@ -206,7 +232,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Extract frames from RoboTwin 2.0 dataset")
     parser.add_argument("--task", type=str, default="beat_block_hammer",
-                        choices=SELECTED_TASKS, help="Task name")
+                        choices=SELECTED_TASKS + SINGLE_ARM_TASKS, help="Task name")
     parser.add_argument("--episode", type=int, default=0, help="Episode index")
     parser.add_argument("--robot", type=str, default=DEFAULT_ROBOT, help="Robot type")
     parser.add_argument("--config", type=str, default=DEFAULT_CONFIG, help="Config (clean_50 or randomized_500)")

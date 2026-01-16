@@ -1,0 +1,55 @@
+# RoboTwin 2.0 Single-Arm Tasks with Overlay Images (Zarr-based)
+#
+# This config uses the fast Zarr-based dataset for training ManiFlow
+# with HAMSTER-style overlay images on single-arm manipulation tasks.
+#
+# IMPORTANT: Run convert_overlay_to_zarr.py first to create the Zarr file!
+
+name: robotwin2_overlay_single_arm_zarr
+
+# Image shape for overlay images
+image_shape: &image_shape [3, 224, 224]
+
+# Shape metadata for observations and actions
+# Key design: dual overlay images (initial + current) for implicit memory
+shape_meta: &shape_meta
+  obs:
+    # Initial overlay: frame 0 with full intended path (provides task goal/memory)
+    initial_overlay:
+      shape: *image_shape
+      type: rgb
+      horizon: ${n_obs_steps}
+
+    # Current overlay: current timestep with remaining path
+    current_overlay:
+      shape: *image_shape
+      type: rgb
+      horizon: ${n_obs_steps}
+
+    # Robot state (joint positions)
+    agent_pos:
+      shape: [14]
+      type: low_dim
+      horizon: ${n_obs_steps}
+
+  action:
+    shape: [14]
+    horizon: ${horizon}
+
+# Dataset configuration - Zarr-based (FAST!)
+dataset:
+  _target_: maniflow.dataset.robotwin2_overlay_zarr_dataset.RoboTwin2OverlayZarrDataset
+
+  # Zarr file path (created by convert_overlay_to_zarr.py)
+  zarr_path: /gscratch/scrubbed/naoto03/projects/HAMSTER-ManiFlow-Integration/ManiFlow/ManiFlow/data/robotwin2_overlay_single_arm.zarr
+
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  task_name: robotwin2_overlay_single_arm
+
+# No env_runner for now (offline training only)
+# env_runner can be added later for online evaluation
