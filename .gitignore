@@ -16,9 +16,6 @@ references/
 PEEK/
 RoboTwin2-Setup/
 
-# PDF papers (can be downloaded from arxiv)
-docs/research/ref_pdf/
-
 # Data files
 *.zarr
 *.pkl
@@ -27,9 +24,17 @@ docs/research/ref_pdf/
 *.hdf5
 *.h5
 
-# ManiFlow data and third_party
+# ManiFlow data
 ManiFlow/data/
+
+# ManiFlow third_party (large external deps)
 ManiFlow/third_party/
+# Exception: Include ManiFlow_HAMSTER evaluation scripts
+!ManiFlow/third_party/RoboTwin2.0/
+ManiFlow/third_party/RoboTwin2.0/*
+!ManiFlow/third_party/RoboTwin2.0/policy/
+ManiFlow/third_party/RoboTwin2.0/policy/*
+!ManiFlow/third_party/RoboTwin2.0/policy/ManiFlow_HAMSTER/
 
 # Results and outputs (general)
 **/results/
@@ -37,10 +42,6 @@ ManiFlow/third_party/
 **/wandb/
 **/eval_results/
 
-# Analysis - exclude regeneratable data, keep reports/tables
-analysis/raw_data/
-analysis/path_quality/grids/
-# Keep: analysis/outputs/ (tables, figures, reports for reproducibility)
 
 # Video files (evaluation recordings)
 *.mp4
@@ -71,3 +72,9 @@ Thumbs.db
 *.temp
 *.log
 nohup.out
+
+# === Override: include ALL files in analysis/ and docs/ ===
+!analysis/
+!analysis/**
+!docs/
+!docs/**
